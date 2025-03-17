@@ -1,6 +1,5 @@
 package kakao.login.handler;
 
-
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
@@ -21,63 +20,60 @@ import java.io.IOException;
 @RequiredArgsConstructor
 public class OAuth2SuccessHandler extends SimpleUrlAuthenticationSuccessHandler {
 
-    //토큰 생성
+    // JWT 생성 책임을 맡고 있는 JwtProvider
     private final JwtProvider jwtProvider;
-    //카카오 토큰 따로 생성
+    // 카카오 및 네이버 OAuth 인증된 클라이언트 서비스 관리
     private final OAuth2AuthorizedClientService authorizedClientService;
 
+    // 인증 성공 시 호출되는 메서드
+    @Override
     public void onAuthenticationSuccess(HttpServletRequest request, HttpServletResponse response, Authentication authentication) throws IOException, ServletException {
 
+        // 인증된 사용자 정보를 CustomOAuth2User 객체로 캐스팅
         CustomOAuth2User oAuth2User = (CustomOAuth2User) authentication.getPrincipal();
-        // 인증 토큰 캐스팅
+        // OAuth 인증 토큰을 가져옴
         OAuth2AuthenticationToken oauthToken = (OAuth2AuthenticationToken) authentication;
 
-        String userId = oAuth2User.getName();
-        //토큰생성
-        String token = jwtProvider.create(userId);
+        String userId = oAuth2User.getName();  // OAuth2 사용자 ID
+        // JWT 토큰을 생성 (userId, 역할은 ROLE_USER로 설정)
+        String token = jwtProvider.create(userId, "ROLE_USER");
 
-// 등록된 클라이언트(카카오, 네이버 등)에서 해당 토큰 정보를 가져오기
+        // 인증된 클라이언트(카카오, 네이버 등)에서 해당 인증 토큰 정보를 가져옴
         OAuth2AuthorizedClient client = authorizedClientService.loadAuthorizedClient(
                 oauthToken.getAuthorizedClientRegistrationId(),
                 oauthToken.getName()
         );
 
+        // 리다이렉트 URL을 설정, 토큰과 만료 시간을 포함
         String redirectUrl = "http://localhost:3000/auth/oauth-response?" +
                 "token=" + token +
-                "&expires_in=" +  client.getAccessToken().getExpiresAt().toEpochMilli(); ; // 기본적으로 공통 파라미터
-
+                "&expires_in=" + client.getAccessToken().getExpiresAt().toEpochMilli();
 
         String registrationId = oauthToken.getAuthorizedClientRegistrationId();
+
+        // 카카오 로그인일 경우, 카카오 액세스 토큰 및 만료 시간 추가
         if ("kakao".equals(registrationId)) {
-            // 카카오 토큰 가져오기
             OAuth2AuthorizedClient kakaoClient = authorizedClientService.loadAuthorizedClient(
-                    "kakao", // 카카오 로그인 등록 ID
-                    oauthToken.getName()
+                    "kakao", oauthToken.getName()
             );
 
             String kakaoAccessToken = kakaoClient.getAccessToken().getTokenValue();
             long kakaoExpiresIn = kakaoClient.getAccessToken().getExpiresAt().toEpochMilli();
-
-            // 카카오 토큰만 전달
             redirectUrl += "&kakaoToken=" + kakaoAccessToken + "&kakaoExpiresIn=" + kakaoExpiresIn;
         }
 
+        // 네이버 로그인일 경우, 네이버 액세스 토큰 및 만료 시간 추가
         else if ("naver".equals(registrationId)) {
-            // 네이버 토큰 가져오기
             OAuth2AuthorizedClient naverClient = authorizedClientService.loadAuthorizedClient(
-                    "naver", // 네이버 로그인 등록 ID
-                    oauthToken.getName()
+                    "naver", oauthToken.getName()
             );
 
             String naverAccessToken = naverClient.getAccessToken().getTokenValue();
             long naverExpiresIn = naverClient.getAccessToken().getExpiresAt().toEpochMilli();
-            // 네이버 토큰만 전달
             redirectUrl += "&naverToken=" + naverAccessToken + "&naverExpiresIn=" + naverExpiresIn;
         }
 
-        // 리다이렉트
+        // 최종적으로 클라이언트(프론트엔드)로 리다이렉트
         response.sendRedirect(redirectUrl);
-
     }
-
 }

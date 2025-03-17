@@ -7,6 +7,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
 @Getter
+// 섹션 업데이트 응답 DTO
 public class SectionUpdateResponseDto extends ResponseDto {
 
     public SectionUpdateResponseDto() {
@@ -19,11 +20,9 @@ public class SectionUpdateResponseDto extends ResponseDto {
         return ResponseEntity.status(HttpStatus.OK).body(responseBody);
     }
 
-    // 섹션 업데이트 실패 응답 (예: 섹션 이름이 이미 존재하는 경우)
+    // 섹션 이름 중복 시 실패 응답 (섹션 이름이 이미 존재하는 경우)
     public static ResponseEntity<ResponseDto> duplicateId() {
         ResponseDto responseBody = new ResponseDto(ResponseCode.DUPLICATE_ID, ResponseMessage.DUPLICATE_ID);
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(responseBody);
     }
-
-
 }

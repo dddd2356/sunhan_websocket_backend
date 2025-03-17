@@ -9,13 +9,13 @@ import lombok.Setter;
 @Getter
 @Setter
 @NoArgsConstructor
+// 이메일 인증 요청 객체
 public class EmailCertificationRequestDto {
 
     @NotBlank
-    private String id;
+    private String id; // 사용자 ID
 
     @Email
     @NotBlank
-    private String email;
-
+    private String email; // 사용자 이메일
 }

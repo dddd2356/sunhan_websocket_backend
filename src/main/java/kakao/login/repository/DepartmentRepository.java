@@ -8,18 +8,20 @@ import org.springframework.stereotype.Repository;
 import java.util.List;
 import java.util.Optional;
 
+// 부서 관련 DB 처리 리포지토리
 @Repository
 public interface DepartmentRepository extends JpaRepository<DepartmentEntity, Long> {
-    Optional<DepartmentEntity> findByDepartmentName(String name); // 이름으로 부서 조회
 
-    Optional<DepartmentEntity> findById(Long id); // 이름으로 부서 조회
+    // 부서 이름으로 부서 조회
+    Optional<DepartmentEntity> findByDepartmentName(String name);
 
+    // 부서 ID로 부서 조회
+    Optional<DepartmentEntity> findById(Long id);
 
-    // 모든 부서 이름을 조회하는 메서드
+    // 모든 부서 이름을 조회하는 쿼리
     @Query("SELECT d.departmentName FROM DepartmentEntity d")
     List<String> findAllDepartmentNames();
 
-    // flag가 "delete"가 아닌 항목만 조회
+    // flag가 "delete"가 아닌 부서만 조회
     List<DepartmentEntity> findByFlagNot(String flag);
-
 }
