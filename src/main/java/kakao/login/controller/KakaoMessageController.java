@@ -1,5 +1,6 @@
 package kakao.login.controller;
 
+
 import jakarta.servlet.http.HttpServletRequest;
 import kakao.login.dto.request.message.MessageRequestDto;
 import kakao.login.service.KakaoMessageService;
@@ -18,7 +19,6 @@ public class KakaoMessageController {
 
     private final KakaoMessageService kakaoMessageService;
 
-    // 메시지 전송 API
     @PostMapping("/send")
     public ResponseEntity<?> sendMessage(@RequestBody MessageRequestDto request, HttpServletRequest requestHttp) {
 
@@ -39,4 +39,7 @@ public class KakaoMessageController {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("메시지 전송 실패");
         }
     }
+
+
+
 }

@@ -18,13 +18,13 @@ public class DepartmentService {
 
     // 모든 부서 이름을 조회하는 메서드
     public List<String> getAllDepartments() {
-        // departmentRepository에서 모든 부서 이름을 조회하여 반환
         return departmentRepository.findAllDepartmentNames();
     }
 
-    // 특정 부서에 해당하는 구역 목록을 조회하는 메서드
+    // 특정 부서에 해당하는 구역 목록 조회
     public List<String> getSectionsByDepartment(String department) {
-        // sectionRepository에서 해당 부서에 속한 섹션 이름을 조회하여 반환
         return sectionRepository.findSectionsByDepartment(department);
     }
+
+
 }

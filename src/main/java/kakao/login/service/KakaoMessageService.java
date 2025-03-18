@@ -149,7 +149,7 @@ public class KakaoMessageService {
         }
     }
 
-        // 📌 카카오 친구 목록 조회
+    // 📌 카카오 친구 목록 조회
     public List<Map<String, Object>> getKakaoFriends(String accessToken) {
         String url = "https://kapi.kakao.com/v1/api/talk/friends";
         try {

@@ -19,10 +19,10 @@ public class DepartmentController {
     @Autowired
     private DepartmentRepository departmentRepository;
 
+
     // 부서 목록 조회 (flag가 "delete"인 항목은 제외)
     @GetMapping("/departments")
     public ResponseEntity<List<DepartmentEntity>> getDepartments() {
-        // "delete" flag가 아닌 부서 목록을 조회하여 반환
         List<DepartmentEntity> departments = departmentRepository.findByFlagNot("delete");
         return ResponseEntity.ok(departments);
     }
@@ -30,7 +30,6 @@ public class DepartmentController {
     // 부서 추가 (신규 부서는 flag를 "add"로 설정)
     @PostMapping("/add")
     public ResponseEntity<DepartmentEntity> addDepartment(@RequestBody DepartmentEntity department) {
-        // 새 부서 생성 시 flag를 "add"로 설정
         department.setFlag("add");
         DepartmentEntity savedDepartment = departmentRepository.save(department);
         return ResponseEntity.status(HttpStatus.CREATED).body(savedDepartment);
@@ -42,16 +41,13 @@ public class DepartmentController {
             @PathVariable Long departmentId,
             @RequestBody DepartmentEntity departmentDetails) {
 
-        // 부서 ID로 해당 부서를 조회
         Optional<DepartmentEntity> departmentOpt = departmentRepository.findById(departmentId);
         if (!departmentOpt.isPresent()) {
-            // 부서가 없으면 404 반환
             return ResponseEntity.notFound().build();
         }
         DepartmentEntity department = departmentOpt.get();
-        // 부서명 수정 (주요 키가 부서명이므로 수정 시 주의 필요)
+        // 필요에 따라 부서명을 수정할 수 있지만, 기본 키가 부서명이므로 주의가 필요합니다.
         department.setDepartmentName(departmentDetails.getDepartmentName());
-        // flag를 "update"로 설정
         department.setFlag("update");
         DepartmentEntity updatedDepartment = departmentRepository.save(department);
         return ResponseEntity.ok(updatedDepartment);
@@ -60,14 +56,11 @@ public class DepartmentController {
     // 부서 삭제 (실제 삭제하지 않고 flag를 "delete"로 업데이트)
     @PutMapping("/{departmentId}/delete")
     public ResponseEntity<?> deleteDepartment(@PathVariable Long departmentId) {
-        // 부서 ID로 해당 부서를 조회
         Optional<DepartmentEntity> departmentOpt = departmentRepository.findById(departmentId);
         if (!departmentOpt.isPresent()) {
-            // 부서가 없으면 404 반환
             return ResponseEntity.notFound().build();
         }
         DepartmentEntity department = departmentOpt.get();
-        // 부서를 삭제된 상태로 변경하기 위해 flag를 "delete"로 설정
         department.setFlag("delete");
         departmentRepository.save(department);
         return ResponseEntity.ok().build();
