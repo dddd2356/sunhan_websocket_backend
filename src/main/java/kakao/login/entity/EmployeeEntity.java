@@ -10,6 +10,8 @@ import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.repository.query.Param;
 
 import java.util.Base64;
 
@@ -68,10 +70,5 @@ public class EmployeeEntity {
     public String getKakaoUuid() {
         // kakaoUuid는 String이어야 하므로 그대로 반환
         return user != null ? user.getKakaoUuid() : null;
-    }
-
-    public String getKakaoId() {
-        // kakaoId는 Long이므로 String으로 변환해서 반환
-        return user != null ? String.valueOf(user.getUserId()) : null;
     }
 }

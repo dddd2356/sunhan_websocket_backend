@@ -1,6 +1,5 @@
 package kakao.login.controller;
 
-import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import kakao.login.dto.request.auth.*;
@@ -9,9 +8,8 @@ import kakao.login.service.AuthService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.client.RestTemplate;
+import kakao.login.dto.request.auth.RefreshTokenRequestDto;  // 추가된 임포트문
 
-import java.util.concurrent.TimeUnit;
 
 @RestController  // RESTful API 컨트롤러
 @RequestMapping("/api/v1/auth")  // URL 경로 설정
@@ -86,4 +84,5 @@ public class AuthController {
         response.addHeader("Set-Cookie", cookie.toString());  // 쿠키 추가
         return ResponseEntity.ok("로그아웃 완료");
     }
+
 }

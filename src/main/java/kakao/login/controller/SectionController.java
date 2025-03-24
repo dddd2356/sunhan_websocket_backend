@@ -8,6 +8,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
+
 @RestController
 @RequestMapping("/api/v1/detail/department")
 public class SectionController {
@@ -64,4 +66,18 @@ public class SectionController {
         }
         return ResponseEntity.ok(department);  // 부서와 섹션 수정 후 부서 반환
     }
+
+    // 섹션 가시성 토글 API
+    @PutMapping("/sections/toggleVisibility")
+    public ResponseEntity<List<DepartmentEntity>> toggleAllSectionsVisibility() {
+        // 전체 부서의 섹션 가시성 토글
+        List<DepartmentEntity> departments = sectionService.toggleAllSectionsVisibility();
+
+        if (departments == null || departments.isEmpty()) {
+            return ResponseEntity.badRequest().build();  // 부서가 없으면 400 Bad Request
+        }
+
+        return ResponseEntity.ok(departments);  // 변경된 부서 목록 반환
+    }
+
 }

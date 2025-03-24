@@ -26,4 +26,7 @@ public class SignUpRequestDto {
 
     @NotBlank
     private String certificationNumber; // 인증번호
+
+    // 추가: 카카오 UUID 필드 (SNS 로그인 후 회원가입 시 같이 받고 싶은 경우)
+    private String kakaoUuid;
 }

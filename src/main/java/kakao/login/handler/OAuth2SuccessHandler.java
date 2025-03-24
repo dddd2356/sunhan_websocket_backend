@@ -5,8 +5,11 @@ import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import kakao.login.entity.CustomOAuth2User;
+import kakao.login.entity.UserEntity;
 import kakao.login.provider.JwtProvider;
+import kakao.login.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.oauth2.client.OAuth2AuthorizedClient;
 import org.springframework.security.oauth2.client.OAuth2AuthorizedClientService;
@@ -15,7 +18,9 @@ import org.springframework.security.web.authentication.SimpleUrlAuthenticationSu
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
+import java.util.Optional;
 
+@Slf4j
 @Component
 @RequiredArgsConstructor
 public class OAuth2SuccessHandler extends SimpleUrlAuthenticationSuccessHandler {
@@ -24,7 +29,8 @@ public class OAuth2SuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
     private final JwtProvider jwtProvider;
     // 카카오 및 네이버 OAuth 인증된 클라이언트 서비스 관리
     private final OAuth2AuthorizedClientService authorizedClientService;
-
+    // UserRepository 주입 (UserEntity 조회용)
+    private final UserRepository userRepository;
     // 인증 성공 시 호출되는 메서드
     @Override
     public void onAuthenticationSuccess(HttpServletRequest request, HttpServletResponse response, Authentication authentication) throws IOException, ServletException {
@@ -48,6 +54,21 @@ public class OAuth2SuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
         String redirectUrl = "http://localhost:3000/auth/oauth-response?" +
                 "token=" + token +
                 "&expires_in=" + client.getAccessToken().getExpiresAt().toEpochMilli();
+
+        // refreshToken 추가: UserEntity를 조회하여 refreshToken 생성 후 저장
+        Optional<UserEntity> userOpt = userRepository.findById(userId);
+        if (userOpt.isPresent()) {
+            UserEntity user = userOpt.get();
+            // refreshToken 생성
+            String refreshToken = jwtProvider.createRefreshToken(userId);
+            // 저장: JwtProvider 내부의 saveRefreshToken 메서드 호출
+            jwtProvider.saveRefreshToken(user, refreshToken);
+            // 리다이렉트 URL에 refreshToken 추가
+            redirectUrl += "&refreshToken=" + refreshToken;
+        } else {
+            log.warn("UserEntity not found for userId: {}", userId);
+        }
+
 
         String registrationId = oauthToken.getAuthorizedClientRegistrationId();
 

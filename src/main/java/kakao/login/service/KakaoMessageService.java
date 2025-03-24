@@ -2,7 +2,9 @@ package kakao.login.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import kakao.login.dto.request.message.MessageRequestDto;
+import kakao.login.entity.EmployeeEntity;
 import kakao.login.entity.UserEntity;
+import kakao.login.repository.EmployeeRepository;
 import kakao.login.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
@@ -30,6 +32,7 @@ public class KakaoMessageService {
     private final WebClient webClient;
     private final EmployeeService employeeService;
     private final UserRepository userRepository;  // UserRepository 추가
+    private final EmployeeRepository employeeRepository;  // EmployeeRepository 추가
 
     public boolean sendMessage(MessageRequestDto request, String accessToken) {
         // 📌 전송 타입에 따른 UUID 목록 설정
@@ -149,7 +152,7 @@ public class KakaoMessageService {
         }
     }
 
-    // 📌 카카오 친구 목록 조회
+        // 📌 카카오 친구 목록 조회
     public List<Map<String, Object>> getKakaoFriends(String accessToken) {
         String url = "https://kapi.kakao.com/v1/api/talk/friends";
         try {
@@ -168,30 +171,35 @@ public class KakaoMessageService {
             List<Map<String, Object>> friends = (List<Map<String, Object>>) response.get("elements");
             System.out.println("✅ 카카오 친구 목록 응답: " + friends);
 
-            // 카카오 UUID 업데이트 로직
+            // 카카오 친구 목록 업데이트 후 UUID 업데이트
             for (Map<String, Object> friend : friends) {
                 String friendUuid = (String) friend.get("uuid");  // 카카오 API에서 받은 uuid
                 Object idObj = friend.get("id");  // "id" 필드 사용
 
                 if (friendUuid != null && idObj != null) {
                     String rawUserId = idObj.toString();  // 숫자 id를 문자열로 변환
-                    String userId = "kakao_" + rawUserId;
+                    String userId = "kakao_" + rawUserId;  // "kakao_" 접두어 추가
 
+                    // 유저가 존재하는지 확인
                     UserEntity userEntity = userRepository.findByUserId(userId);
                     if (userEntity == null) {
                         System.out.println("❌ 사용자 없음: " + userId);
                         // 만약 사용자 등록이 필수라면, 여기서 신규 등록 처리 혹은 로그를 남깁니다.
-                    } else if (userEntity.getKakaoUuid() == null || userEntity.getKakaoUuid().isEmpty()) {
-                        // 카카오 UUID가 없으면 업데이트 (업데이트 쿼리도 userId 기준으로 수정)
-                        userRepository.updateKakaoUuid(friendUuid, userId);
-                        System.out.println("✅ 카카오 UUID 업데이트 완료: " + userId);
                     } else {
-                        System.out.println("❌ 해당 사용자에 대한 유효한 카카오 UUID가 이미 존재: " + userId);
+                        // 유저가 존재하면 카카오 UUID 업데이트
+                        if (userEntity.getKakaoUuid() == null || userEntity.getKakaoUuid().isEmpty()) {
+                            // 카카오 UUID가 없으면 업데이트 (업데이트 쿼리도 userId 기준으로 수정)
+                            userRepository.updateKakaoUuid(userId, friendUuid);
+                            System.out.println("✅ 카카오 UUID 업데이트 완료: " + userId);
+                            // EmployeeEntity 업데이트
+                            employeeRepository.updateEmployeeKakaoUuid(userId, friendUuid);
+                            System.out.println("✅ 직원 테이블에 카카오 UUID 업데이트 완료: " + userId);
+                        } else {
+                            System.out.println("❌ 해당 사용자에 대한 유효한 카카오 UUID가 이미 존재: " + userId);
+                        }
                     }
                 }
             }
-
-
             return friends;
         } catch (Exception e) {
             System.out.println("❌ 카카오 친구 목록 API 호출 실패: " + e.getMessage());

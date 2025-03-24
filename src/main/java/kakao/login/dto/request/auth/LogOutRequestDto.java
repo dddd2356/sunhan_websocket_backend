@@ -9,5 +9,6 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 @NoArgsConstructor
 public class LogOutRequestDto {
-    private String accessToken; //카카오 or 네이버 액세스토큰
+    private String userId;
+    private String refreshToken;
 }

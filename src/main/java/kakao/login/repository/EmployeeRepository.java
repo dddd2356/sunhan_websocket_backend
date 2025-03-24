@@ -1,9 +1,11 @@
 package kakao.login.repository;
 import kakao.login.entity.EmployeeEntity;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Optional;
@@ -42,4 +44,10 @@ public interface EmployeeRepository extends JpaRepository<EmployeeEntity, Long> 
     List<String> findKakaoUuidsWithEmployees(@Param("userIds") List<String> userIds); // 특정 직원들의 카카오 UUID 목록 조회
 
     List<EmployeeEntity> findByKakaoUuidIn(List<String> kakaoUuids);
+
+    @Modifying
+    @Transactional
+    @Query("UPDATE EmployeeEntity e SET e.kakaoUuid = :kakaoUuid WHERE e.user.userId = :userId")
+    void updateEmployeeKakaoUuid(@Param("userId") String userId, @Param("kakaoUuid") String kakaoUuid);
+
 }

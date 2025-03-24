@@ -43,7 +43,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             }
 
             // JWT 토큰을 검증하고 userId를 추출
-            String userId = jwtProvider.validate(token);
+            String userId = String.valueOf(jwtProvider.validate(token));
             if(userId == null){  // 유효하지 않은 토큰이면 필터 체인 계속 진행
                 filterChain.doFilter(request, response);
                 return;
@@ -51,7 +51,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
             // userId를 기반으로 UserEntity를 조회하여 역할(role) 정보 추출
             UserEntity userEntity = userRepository.findByUserId(userId);
-            String role = userEntity.getRole();  // 역할 정보
+            if (userEntity == null) {  // Add this null check
+                filterChain.doFilter(request, response);
+                return;
+            }
+            String role = userEntity.getRole();  // Now it's safe to call getRole()
 
             // 권한을 리스트로 저장 (여기서는 "ROLE_USER" 또는 "ROLE_ADMIN")
             List<GrantedAuthority> authorities = new ArrayList<>();

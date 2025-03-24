@@ -11,7 +11,6 @@ import org.springframework.http.ResponseEntity;
 @Getter
 public class LogOutResponseDto extends ResponseDto {
 
-
     public static ResponseEntity<LogOutResponseDto> success(){
         LogOutResponseDto responseBody = new LogOutResponseDto();
         return ResponseEntity.status(HttpStatus.OK).body(responseBody);

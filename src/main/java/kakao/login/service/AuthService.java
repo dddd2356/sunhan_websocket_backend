@@ -26,4 +26,8 @@ public interface AuthService {
 
     // 로그아웃 처리
     ResponseEntity<String> logout(HttpServletRequest request, HttpServletResponse response, String loginMethod);
+
+    // 새로운 메서드: 토큰 갱신
+    ResponseEntity<? super RefreshTokenResponseDto> refreshToken(RefreshTokenRequestDto requestDto);
+    boolean validateToken(String token);
 }

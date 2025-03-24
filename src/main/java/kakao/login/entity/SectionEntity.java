@@ -23,6 +23,10 @@ public class SectionEntity {
     @Column(name = "section_name")
     private String sectionName;  // 섹션 이름을 PK로 사용
 
+    // 섹션 보임 여부 플래그 (예: true는 보임, false는 숨김)
+    @Column(name = "is_visible", nullable = false)
+    private Boolean isVisible = true;
+
     @ManyToOne
     @JoinColumn(name = "department_id", referencedColumnName = "id")  // department_id로 수정
     @JsonBackReference

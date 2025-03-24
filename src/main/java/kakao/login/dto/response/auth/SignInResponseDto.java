@@ -8,27 +8,29 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
 @Getter
-// 로그인 응답 DTO
 public class SignInResponseDto extends ResponseDto {
 
-    private String token;            // 로그인 성공 시 반환되는 토큰
-    private int expirationTime;      // 토큰의 만료 시간 (기본 3600초 설정)
+    private String token;
+    private String refreshToken;
+    private long expiresIn;
 
-    // 생성자
-    private SignInResponseDto(String token){
-        super();
+    private SignInResponseDto(String code, String message, String token, String refreshToken, long expiresIn) {
+        super(code, message);
         this.token = token;
-        this.expirationTime = 3600;  // 기본 만료 시간 설정
+        this.refreshToken = refreshToken;
+        this.expiresIn = expiresIn;
     }
 
-    // 로그인 성공 시 응답
-    public static ResponseEntity<SignInResponseDto> success(String token){
-        SignInResponseDto responseBody = new SignInResponseDto(token);
+    // 로그인 성공 응답
+// 수정된 메서드 (refreshToken을 필요로 하지 않는 경우)
+    public static ResponseEntity<SignInResponseDto> success(String token, String refreshToken, long expiresIn) {
+        SignInResponseDto responseBody = new SignInResponseDto(ResponseCode.SUCCESS, ResponseMessage.SUCCESS, token, refreshToken, expiresIn);
         return ResponseEntity.status(HttpStatus.OK).body(responseBody);
     }
 
+
     // 로그인 실패 응답
-    public static ResponseEntity<ResponseDto> signInFail(){
+    public static ResponseEntity<ResponseDto> signInFail() {
         ResponseDto responseBody = new ResponseDto(ResponseCode.SIGN_IN_FAIL, ResponseMessage.SIGN_IN_FAIL);
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(responseBody);
     }

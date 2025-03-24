@@ -34,7 +34,7 @@ public class EmployeeController {
             @RequestParam String name,
             @RequestParam String phone,
             @RequestParam String department,
-            @RequestParam String section,
+            @RequestParam(required = false) String section,  // 섹션 파라미터를 선택사항으로 변경
             @RequestParam String position,
             @RequestParam(required = false) MultipartFile profileImage) {
 
@@ -70,6 +70,18 @@ public class EmployeeController {
         }
     }
 
+    // 부서에 해당하는 모든 직원 목록 조회
+    @GetMapping("/department/employees")
+    public ResponseEntity<List<EmployeeRequestDTO>> getEmployeesByDepartment(
+            @RequestParam String department) {
+        // Use your existing service method
+        List<EmployeeEntity> employees = employeeService.getEmployeesByDepartment(department);
+        List<EmployeeRequestDTO> employeeDTOs = employees.stream()
+                .map(EmployeeRequestDTO::fromEntity)
+                .collect(Collectors.toList());
+        return ResponseEntity.ok(employeeDTOs);
+    }
+
     // 부서에 해당하는 구역 목록 조회
     @GetMapping("/department/sections")
     public List<String> getSectionsByDepartment(@RequestParam String department) {
@@ -82,12 +94,17 @@ public class EmployeeController {
     public ResponseEntity<List<EmployeeRequestDTO>> getEmployeesBySection(
             @RequestParam String department,
             @RequestParam String section) {
+        System.out.println("Received department: " + department);
+        System.out.println("Received section: " + section);
+
         List<EmployeeEntity> employees = employeeService.getEmployeesByDepartmentAndSection(department, section);
         List<EmployeeRequestDTO> employeeDTOs = employees.stream()
                 .map(EmployeeRequestDTO::fromEntity)
                 .collect(Collectors.toList());
         return ResponseEntity.ok(employeeDTOs);
     }
+
+
 
 
 
@@ -100,7 +117,7 @@ public class EmployeeController {
             @RequestParam(required = false) String name,
             @RequestParam(required = false) String phone,
             @RequestParam(required = false) String department,
-            @RequestParam(required = false) String section,
+            @RequestParam(required = false) String section, // 선택 사항으로 변경
             @RequestParam(required = false) String position,
             @RequestParam(required = false) MultipartFile profileImage) {
 
@@ -115,6 +132,7 @@ public class EmployeeController {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("파일 업로드 오류");
         }
     }
+
 
 
     @DeleteMapping("/employee/{employeeId}/delete")

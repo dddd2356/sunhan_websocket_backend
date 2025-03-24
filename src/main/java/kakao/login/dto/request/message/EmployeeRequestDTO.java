@@ -39,4 +39,5 @@ public class EmployeeRequestDTO {
         dto.setKakaoUuid(employee.getKakaoUuid()); // 최신 카카오 UUID 설정
         return dto;
     }
+
 }

@@ -9,6 +9,7 @@ import kakao.login.dto.request.auth.*;
 import kakao.login.dto.response.ResponseDto;
 import kakao.login.dto.response.auth.*;
 import kakao.login.entity.CertificationEntity;
+import kakao.login.entity.RefreshTokenEntity;
 import kakao.login.entity.UserEntity;
 import kakao.login.provider.EmailProvider;
 import kakao.login.provider.JwtProvider;
@@ -23,6 +24,8 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
+import java.util.Optional;
+
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -33,6 +36,9 @@ public class AuthServiceImplement implements AuthService {
     private final CertificationRepository certificationRepository;
     private final JwtProvider jwtProvider;
     private final EmailProvider emailProvider;
+
+    // RefreshTokenService 주입
+    private final RefreshTokenServiceImplement refreshTokenService;
 
     // 로그아웃을 위해 RestTemplate을 사용하여 외부 API 호출
     private final RestTemplate restTemplate = new RestTemplate();
@@ -51,9 +57,9 @@ public class AuthServiceImplement implements AuthService {
             exception.printStackTrace();
             return ResponseDto.databaseError();  // 예외 발생 시 DB 오류 응답
         }
-
         return IdCheckResponseDto.success();  // 성공 응답
     }
+
 
     // 이메일 인증
     @Override
@@ -146,28 +152,39 @@ public class AuthServiceImplement implements AuthService {
     @Override
     public ResponseEntity<? super SignInResponseDto> signIn(SignInRequestDto dto) {
         String token = null;
+        String refreshToken = null;
+        long expiresIn = 0;
 
         try {
             String userId = dto.getId();
             UserEntity userEntity = userRepository.findByUserId(userId);
-            if (userEntity == null) return SignInResponseDto.signInFail();  // 유저가 존재하지 않으면 로그인 실패
+            if (userEntity == null) return SignInResponseDto.signInFail();
 
             // 비밀번호 일치 확인
             String password = dto.getPassword();
             String encodedPassword = userEntity.getPassword();
             boolean isMatched = passwordEncoder.matches(password, encodedPassword);
-            if (!isMatched) return SignInResponseDto.signInFail();  // 비밀번호 불일치 시 로그인 실패
+            if (!isMatched) return SignInResponseDto.signInFail();
 
-            // JWT 토큰 생성 (userId와 role 함께 반환)
+            // JWT 액세스 토큰 생성
             token = jwtProvider.create(userId, userEntity.getRole());
+
+            // 리프레시 토큰 생성 및 DB에 저장 (RefreshTokenService 사용)
+            RefreshTokenEntity refreshTokenEntity = refreshTokenService.createRefreshToken(userId);
+            refreshToken = refreshTokenEntity.getToken();
+
+            // 토큰 만료 시간 (초 단위)
+            expiresIn = jwtProvider.getAccessTokenExpirationTime();
 
         } catch (Exception exception) {
             exception.printStackTrace();
-            return ResponseDto.databaseError();  // 예외 발생 시 DB 오류 응답
+            return ResponseDto.databaseError();
         }
 
-        return SignInResponseDto.success(token);  // 로그인 성공 및 JWT 반환
+        // 반환하는 응답 객체에 access token, refresh token, 만료 시간 모두 포함
+        return SignInResponseDto.success(token, refreshToken, expiresIn);
     }
+
 
     // 로그아웃 처리
     @Override
@@ -214,6 +231,68 @@ public class AuthServiceImplement implements AuthService {
             return logoutNaver(token, response);
         } else {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body("지원되지 않는 로그인 방식입니다.");
+        }
+    }
+
+    @Override
+    public ResponseEntity<? super RefreshTokenResponseDto> refreshToken(RefreshTokenRequestDto dto) {
+        try {
+            String refreshToken = dto.getRefreshToken();
+            if (refreshToken == null) {
+                return RefreshTokenResponseDto.refreshTokenNotProvided();
+            }
+
+            // refresh token 검증 (DB와 상태 확인)
+            if (!jwtProvider.verifyRefreshToken(refreshToken)) {
+                return RefreshTokenResponseDto.invalidRefreshToken();
+            }
+
+            // 토큰에서 사용자 ID 추출
+            Optional<String> userIdOpt = jwtProvider.validateRefreshToken(refreshToken);
+            if (userIdOpt.isEmpty()) {
+                return RefreshTokenResponseDto.invalidRefreshToken();
+            }
+
+            String userId = userIdOpt.get();
+
+            // 사용자 정보 조회
+            UserEntity userEntity = userRepository.findByUserId(userId);
+            if (userEntity == null) {
+                return RefreshTokenResponseDto.userNotFound();
+            }
+
+            // 새 액세스 토큰 생성
+            String newAccessToken = jwtProvider.create(userId, userEntity.getRole());
+
+            // 기존 refresh token 폐기
+            jwtProvider.revokeRefreshToken(refreshToken);
+
+            // 새 refresh token 생성
+            String newRefreshToken = jwtProvider.createRefreshToken(userId);
+
+            // 새 리프레시 토큰 저장
+            jwtProvider.saveRefreshToken(userEntity, newRefreshToken);
+
+            // 새 토큰과 만료 시간 반환
+            return RefreshTokenResponseDto.success(newAccessToken, newRefreshToken, jwtProvider.getAccessTokenExpirationTime());
+
+        } catch (Exception exception) {
+            exception.printStackTrace();
+            return ResponseDto.databaseError();
+        }
+    }
+
+
+
+    @Override
+    public boolean validateToken(String token) {
+        try {
+            // jwtSecret 변수는 JwtProvider에서 관리해야 합니다.
+            // 따라서 JwtProvider의 메서드를 호출하여 토큰 검증
+            return jwtProvider.validateToken(token);
+        } catch (Exception e) {
+            log.error("토큰 검증 실패: {}", e.getMessage());
+            return false;
         }
     }
 

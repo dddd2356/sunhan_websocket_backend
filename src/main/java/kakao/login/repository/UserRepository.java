@@ -27,6 +27,7 @@ public interface UserRepository extends JpaRepository<UserEntity, String> {
     // kakaoUuid를 업데이트하는 메소드
     @Modifying
     @Transactional
-    @Query("UPDATE user u SET u.kakaoUuid = :kakaoUuid WHERE u.userId = CONCAT('kakao_', :rawUserId)")
-    void updateKakaoUuid(@Param("kakaoUuid") String kakaoUuid, @Param("rawUserId") String rawUserId);
+    @Query("UPDATE user u SET u.kakaoUuid = :kakaoUuid WHERE u.userId = :userId")
+    void updateKakaoUuid(@Param("userId") String userId, @Param("kakaoUuid") String kakaoUuid);
+
 }

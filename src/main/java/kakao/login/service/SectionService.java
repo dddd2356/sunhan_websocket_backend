@@ -8,6 +8,7 @@ import kakao.login.repository.SectionRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.util.List;
 import java.util.Optional;
 
 @Service
@@ -96,6 +97,28 @@ public class SectionService {
 
         return department; // 수정된 부서 반환 (부서 이름 포함)
     }
+
+    // 섹션 가시성 토글 (전체 부서에 대해)
+    public List<DepartmentEntity> toggleAllSectionsVisibility() {
+        // 모든 부서 조회
+        List<DepartmentEntity> departments = departmentRepository.findAll();
+        if (departments.isEmpty()) {
+            return null;  // 부서가 없으면 null 반환
+        }
+
+        // 각 부서의 섹션 가시성 토글
+        for (DepartmentEntity department : departments) {
+            List<SectionEntity> sections = department.getSections();
+            for (SectionEntity section : sections) {
+                section.setIsVisible(!section.getIsVisible());  // 가시성 토글
+                sectionRepository.save(section);  // 섹션 저장
+            }
+        }
+
+        return departments;  // 변경된 부서 리스트 반환
+    }
+
+
 
 
     public DepartmentEntity getDepartmentById(Long departmentId) {

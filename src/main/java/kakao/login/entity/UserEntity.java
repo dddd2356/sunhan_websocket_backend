@@ -21,7 +21,6 @@ public class UserEntity {
     @Id
     @Column(name = "user_id", nullable = false, unique = true)  // "user_id" 컬럼을 기본 키로 설정
     private String userId;  // 사용자 ID
-
     private String password;  // 비밀번호
     private String email;  // 이메일
     private String type;  // 사용자 유형 (예: "app", "sns" 등)
@@ -39,5 +38,10 @@ public class UserEntity {
         this.email = dto.getEmail();
         this.type = "app";  // SNS 로그인 예정이므로 기본값을 "app"으로 설정
         this.role = "ROLE_USER";  // 기본 역할을 "ROLE_USER"로 설정
+        this.kakaoUuid = dto.getKakaoUuid();        // SignUpRequestDto에서 받은 카카오 UUID 설정 (추가)
+    }
+    // Update constructor to remove refreshToken parameter
+    public UserEntity(SignUpRequestDto dto, String refreshToken) {
+        this(dto);
     }
 }
