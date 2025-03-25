@@ -20,6 +20,7 @@ import java.security.Key;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Date;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -212,13 +213,16 @@ public class JwtProvider {
             return;
         }
 
-        // 기존 토큰이 있으면 삭제
-        refreshTokenRepository.findByUser(user).ifPresent(refreshTokenRepository::delete);
+        // 기존 토큰이 있으면 모두 삭제 (혹은 업데이트)
+        List<RefreshTokenEntity> tokens = refreshTokenRepository.findByUser(user);
+        if (!tokens.isEmpty()) {
+            tokens.forEach(refreshTokenRepository::delete);
+        }
 
         // 새 토큰 저장
         RefreshTokenEntity tokenEntity = new RefreshTokenEntity();
         tokenEntity.setId(tokenId);
-        tokenEntity.setUser(user); // UserEntity 저장
+        tokenEntity.setUser(user);
         tokenEntity.setToken(refreshToken);
         tokenEntity.setExpiryDate(Instant.now().plus(refreshTokenExpiration, ChronoUnit.DAYS));
         tokenEntity.setRevoked(false);
@@ -226,7 +230,6 @@ public class JwtProvider {
         refreshTokenRepository.save(tokenEntity);
         System.out.println("새 refresh token 저장됨: " + refreshToken);
     }
-
 
     // 리프레시 토큰 검증 (데이터베이스 기반)
     public boolean verifyRefreshToken(String refreshToken) {

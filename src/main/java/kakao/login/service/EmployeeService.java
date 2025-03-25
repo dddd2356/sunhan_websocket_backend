@@ -119,6 +119,12 @@ public class EmployeeService {
     // 직원 정보 조회 메소드
     public EmployeeEntity getEmployeeInfo(String userId) {
         EmployeeEntity employee = employeeRepository.findByUser_UserId(userId);
+        // employee가 null일 경우 예외 처리
+
+        if (employee == null) {
+            // 사용자에게 적절한 예외나 메시지 반환
+            throw new RuntimeException("Employee not found for userId: " + userId);
+        }
 
         if (employee != null && employee.getProfileImage() != null) {
             // 프로필 이미지가 있을 경우 Base64로 변환하여 set
@@ -126,11 +132,16 @@ public class EmployeeService {
             employee.setProfileImageBase64(profileImageBase64);
         }
 
-        // kakao_uuid 값 포함시키기
-        String kakaoUuid = employee.getKakaoUuid();  // EmployeeEntity에서 kakao_uuid 가져오기
-        System.out.println("Kakao UUID: " + kakaoUuid);  // 출력 확인
-// 직원 정보 조회 후 kakaoUuid 로그
-        log.info("Employee {} kakaoUuid: {}", userId, kakaoUuid);
+        // kakaoUuid 값이 null이 아닌지 확인
+        String kakaoUuid = employee.getKakaoUuid();
+        if (kakaoUuid != null) {
+            System.out.println("Kakao UUID: " + kakaoUuid);  // 출력 확인
+            log.info("Employee {} kakaoUuid: {}", userId, kakaoUuid);
+        } else {
+            System.out.println("Kakao UUID not found for userId: " + userId);
+            log.info("Employee {} kakaoUuid not found", userId);
+        }
+
         return employee;
     }
 

@@ -70,8 +70,8 @@ public class WebSecurityConfig {
 
                 // 로그아웃 설정
                 .logout(logout -> logout
-                        .logoutUrl("/api/v1/auth/logout")  // 로그아웃 API URL 설정
-                        .deleteCookies("accessToken", "kakaoAccessToken", "naverAccessToken")  // 로그아웃 시 쿠키 삭제
+                        .logoutUrl("/api/v1/auth/logout/")  // 로그아웃 API URL 설정
+                        .deleteCookies("accessToken", "kakaoAccessToken", "naverAccessToken", "refreshToken")  // 로그아웃 시 쿠키 삭제
                         .invalidateHttpSession(true)  // 세션 무효화
                 )
 

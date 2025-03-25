@@ -7,7 +7,9 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
 import java.util.Optional;
 
 @Repository
@@ -15,7 +17,7 @@ public interface RefreshTokenRepository extends JpaRepository<RefreshTokenEntity
     // UserEntity를 기준으로 리프레시 토큰을 찾는 메서드
     Optional<RefreshTokenEntity> findByToken(String token);
 
-    Optional<RefreshTokenEntity> findByUser(UserEntity user);
+    List<RefreshTokenEntity> findByUser(UserEntity user);
 
 
     // UserEntity를 기준으로 리프레시 토큰을 취소하는 메서드
@@ -36,4 +38,13 @@ public interface RefreshTokenRepository extends JpaRepository<RefreshTokenEntity
     @Query("SELECT r FROM RefreshTokenEntity r WHERE r.user.userId = :userId")
     Optional<RefreshTokenEntity> findByUserId(@Param("userId") String userId);
 
+    @Modifying
+    @Transactional
+    @Query("DELETE FROM RefreshTokenEntity r WHERE r.expiryDate < CURRENT_TIMESTAMP")
+    void deleteExpiredTokens();
+
+    @Modifying
+    @Transactional
+    @Query("DELETE FROM RefreshTokenEntity r WHERE r.revoked = true")
+    void deleteRevokedTokens();
 }

@@ -69,6 +69,22 @@ public class AuthController {
         return ResponseEntity.ok("로그아웃 완료");
     }
 
+    @PostMapping("/logout/naver")
+    public ResponseEntity<String> logoutNaver(HttpServletResponse response) {
+        // JWT 토큰을 저장하는 쿠키 삭제
+        ResponseCookie cookie = ResponseCookie.from("naverAccessToken", "")
+                .path("/")
+                .maxAge(0)
+                .httpOnly(true)
+                .sameSite("None")
+                .secure(true)
+                .build();
+
+        response.addHeader("Set-Cookie", cookie.toString());  // 쿠키 추가
+        return ResponseEntity.ok("로그아웃 완료");
+    }
+
+
     // 웹(JWT) 로그아웃 엔드포인트
     @PostMapping("/logout/web")
     public ResponseEntity<String> logoutWeb(HttpServletResponse response) {

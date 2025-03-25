@@ -56,6 +56,7 @@ public class EmployeeController {
             }
             return ResponseEntity.ok(employee);
         } catch (Exception e) {
+            e.printStackTrace();
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(null);
         }
     }

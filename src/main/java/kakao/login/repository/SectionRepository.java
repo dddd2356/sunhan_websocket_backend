@@ -3,9 +3,11 @@ package kakao.login.repository;
 import kakao.login.entity.DepartmentEntity;
 import kakao.login.entity.SectionEntity;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Optional;
@@ -20,4 +22,5 @@ public interface SectionRepository extends JpaRepository<SectionEntity, Long> {
 
     // 부서와 구역 이름을 기반으로 SectionEntity 조회
     Optional<SectionEntity> findBySectionNameAndDepartment(String sectionName, DepartmentEntity department);
+
 }

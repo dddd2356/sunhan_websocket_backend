@@ -53,7 +53,7 @@ public class OAuth2SuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
         // 리다이렉트 URL을 설정, 토큰과 만료 시간을 포함
         String redirectUrl = "http://localhost:3000/auth/oauth-response?" +
                 "token=" + token +
-                "&expires_in=" + client.getAccessToken().getExpiresAt().toEpochMilli();
+                "&expiresIn=" + client.getAccessToken().getExpiresAt().toEpochMilli();
 
         // refreshToken 추가: UserEntity를 조회하여 refreshToken 생성 후 저장
         Optional<UserEntity> userOpt = userRepository.findById(userId);

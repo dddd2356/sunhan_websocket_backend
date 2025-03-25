@@ -24,6 +24,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
+import java.util.Map;
 import java.util.Optional;
 
 @Slf4j
@@ -235,51 +236,24 @@ public class AuthServiceImplement implements AuthService {
     }
 
     @Override
-    public ResponseEntity<? super RefreshTokenResponseDto> refreshToken(RefreshTokenRequestDto dto) {
-        try {
-            String refreshToken = dto.getRefreshToken();
-            if (refreshToken == null) {
-                return RefreshTokenResponseDto.refreshTokenNotProvided();
-            }
-
-            // refresh token 검증 (DB와 상태 확인)
-            if (!jwtProvider.verifyRefreshToken(refreshToken)) {
-                return RefreshTokenResponseDto.invalidRefreshToken();
-            }
-
-            // 토큰에서 사용자 ID 추출
-            Optional<String> userIdOpt = jwtProvider.validateRefreshToken(refreshToken);
-            if (userIdOpt.isEmpty()) {
-                return RefreshTokenResponseDto.invalidRefreshToken();
-            }
-
-            String userId = userIdOpt.get();
-
-            // 사용자 정보 조회
-            UserEntity userEntity = userRepository.findByUserId(userId);
-            if (userEntity == null) {
-                return RefreshTokenResponseDto.userNotFound();
-            }
-
-            // 새 액세스 토큰 생성
-            String newAccessToken = jwtProvider.create(userId, userEntity.getRole());
-
-            // 기존 refresh token 폐기
-            jwtProvider.revokeRefreshToken(refreshToken);
-
-            // 새 refresh token 생성
-            String newRefreshToken = jwtProvider.createRefreshToken(userId);
-
-            // 새 리프레시 토큰 저장
-            jwtProvider.saveRefreshToken(userEntity, newRefreshToken);
-
-            // 새 토큰과 만료 시간 반환
-            return RefreshTokenResponseDto.success(newAccessToken, newRefreshToken, jwtProvider.getAccessTokenExpirationTime());
-
-        } catch (Exception exception) {
-            exception.printStackTrace();
-            return ResponseDto.databaseError();
+    public ResponseEntity<? super RefreshTokenResponseDto> refreshToken(RefreshTokenRequestDto requestDto) {
+        String refreshToken = requestDto.getRefreshToken();
+        if (refreshToken == null || refreshToken.trim().isEmpty()) {
+            return RefreshTokenResponseDto.refreshTokenNotProvided();
         }
+
+        Optional<Map<String, Object>> tokenMapOpt = refreshTokenService.refreshAccessToken(refreshToken);
+        if (tokenMapOpt.isEmpty()) {
+            return RefreshTokenResponseDto.invalidRefreshToken();
+        }
+
+        Map<String, Object> tokenMap = tokenMapOpt.get();
+        String newAccessToken = (String) tokenMap.get("accessToken");
+        String newRefreshToken = (String) tokenMap.get("refreshToken");
+        // jwtProvider.getAccessTokenExpirationTime()는 초 단위로 반환한다고 가정
+        long expiresIn = jwtProvider.getAccessTokenExpirationTime();
+
+        return RefreshTokenResponseDto.success(newAccessToken, newRefreshToken, expiresIn);
     }
 
 
