@@ -1,6 +1,7 @@
 package kakao.login.controller;
 
 import kakao.login.dto.request.auth.RefreshTokenRequestDto;
+import kakao.login.dto.response.auth.RefreshTokenResponseDto;
 import kakao.login.service.AuthService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -23,12 +24,15 @@ public class TokenRefreshController {
     public ResponseEntity<?> refreshToken(@RequestBody RefreshTokenRequestDto requestBody) {
         log.info("토큰 갱신 요청 수신");
 
-        if (requestBody.getRefreshToken() != null && requestBody.getRefreshToken().length() > 10) {
-            log.info("토큰 갱신 요청 수신: {}...", requestBody.getRefreshToken().substring(0, 10));
+        if (requestBody.getRefreshToken() == null || requestBody.getRefreshToken().isEmpty()) {
+            return RefreshTokenResponseDto.refreshTokenNotProvided();
         }
+
+        log.info("토큰 갱신 요청 수신: {}...", requestBody.getRefreshToken().substring(0, 10));
 
         return authService.refreshToken(requestBody);
     }
+
 
     @GetMapping("/validate-token")
     public ResponseEntity<?> validateToken(@RequestHeader("Authorization") String authHeader) {
