@@ -1,6 +1,7 @@
 package kakao.login.provider;
 
 import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.ExpiredJwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.SignatureAlgorithm;
 import io.jsonwebtoken.security.Keys;
@@ -12,7 +13,6 @@ import kakao.login.repository.UserRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.security.oauth2.jwt.JwtException;
 import org.springframework.stereotype.Component;
 
 import java.nio.charset.StandardCharsets;
@@ -28,240 +28,250 @@ import java.util.UUID;
 @Component
 public class JwtProvider {
 
-    @Value("${secret-key}")  // application.yml에서 정의된 secret-key를 가져옴
+    @Value("${secret-key}")
     private String secretKey;
 
-    @Value("${refresh-key:${secret-key}}")  // refresh 토큰용 시크릿 키 (기본값은 secret-key)
+    @Value("${refresh-key:${secret-key}}")
     private String refreshKey;
 
-    // 액세스 토큰 만료 시간 (기본값 1시간)
-    @Value("${access-token.expiration:1}")
+    @Value("${jwt.access-token.expiration:3600000}") // Default: 1 hour in milliseconds
     private long accessTokenExpiration;
 
-    // 리프레시 토큰 만료 시간 (기본값 14일)
-    @Value("${refresh-token.expiration:14}")
+    @Value("${jwt.refresh-token.expiration:1209600000}") // Default: 14 days in milliseconds
     private long refreshTokenExpiration;
 
     @Autowired
     private RefreshTokenRepository refreshTokenRepository;
 
     @Autowired
-    private UserRepository userRepository; // Add this field
+    private UserRepository userRepository;
 
-    // 🔽 Key 객체를 필드로 선언하여 여러 메서드에서 재사용
     private Key signingKey;
     private Key refreshSigningKey;
 
-    // 액세스 토큰 만료 시간 (초 단위)
-    private final long ACCESS_TOKEN_EXPIRATION = 1000 * 60 * 30; // 30분
-
-    // 리프레시 토큰 만료 시간 (초 단위)
-    private final long REFRESH_TOKEN_EXPIRATION = 1000 * 60 * 60 * 24 * 14; // 14일
-
-
-    // ✅ @PostConstruct를 활용한 키 초기화
     @PostConstruct
     public void init() {
         this.signingKey = Keys.hmacShaKeyFor(secretKey.getBytes(StandardCharsets.UTF_8));
         this.refreshSigningKey = Keys.hmacShaKeyFor(refreshKey.getBytes(StandardCharsets.UTF_8));
+        log.info("Access Token Expiration: {}ms", accessTokenExpiration);
+        log.info("Refresh Token Expiration: {}ms", refreshTokenExpiration);
     }
 
-
-
-    // 액세스 토큰 생성 메서드 (사용자 ID와 역할을 기반으로 토큰 생성)
     public String create(String userId, String role) {
-        // JWT Claims에 사용자 ID와 역할을 설정
         Claims claims = Jwts.claims().setSubject(userId);
-        claims.put("role", role);  // 역할을 Claims에 추가
-        claims.put("type", "access");  // 토큰 타입 지정
+        claims.put("role", role);
+        claims.put("type", "access");
 
-        // 토큰 만료 기간 설정 (설정된 시간 후)
-        Date expiredDate = Date.from(Instant.now().plus(accessTokenExpiration, ChronoUnit.HOURS));
-        Key key = Keys.hmacShaKeyFor(secretKey.getBytes(StandardCharsets.UTF_8));  // 비밀 키를 사용하여 서명
-
-        // JWT 생성
-        String jwt = Jwts.builder()
-                .signWith(key, SignatureAlgorithm.HS256)  // HS256 알고리즘으로 서명
+        Date expiredDate = Date.from(Instant.now().plus(accessTokenExpiration, ChronoUnit.MILLIS));
+        log.info("Creating access token for userId: {}, expires at: {}", userId, expiredDate);
+        return Jwts.builder()
+                .signWith(signingKey, SignatureAlgorithm.HS256)
                 .setClaims(claims)
-                .setSubject(userId)  // 토큰의 subject는 사용자 ID
-                .setIssuedAt(new Date())  // 토큰 발급 시점
-                .setExpiration(expiredDate)  // 만료 일자 설정
-                .compact();  // JWT 토큰 반환
-
-        return jwt;
-    }
-
-    // 리프레시 토큰 생성 메서드
-    public String createRefreshToken(String userId) {
-        // 리프레시 토큰용 Claims 설정
-        Claims claims = Jwts.claims().setSubject(userId);
-        claims.put("type", "refresh");  // 토큰 타입 지정
-
-        // 리프레시 토큰은 더 긴 유효기간을 가짐 (설정된 일수)
-        Date expiredDate = Date.from(Instant.now().plus(refreshTokenExpiration, ChronoUnit.DAYS));
-        Key key = Keys.hmacShaKeyFor(refreshKey.getBytes(StandardCharsets.UTF_8));
-
-        // 토큰 ID 생성 (관리 및 무효화를 위한 식별자)
-        String tokenId = UUID.randomUUID().toString();
-
-        // 리프레시 토큰 생성
-        String refreshToken = Jwts.builder()
-                .signWith(key, SignatureAlgorithm.HS256)
-                .setClaims(claims)
-                .setId(tokenId)  // 토큰 ID 설정
-                .setSubject(userId)
                 .setIssuedAt(new Date())
                 .setExpiration(expiredDate)
                 .compact();
-
-        return refreshToken;
     }
 
-    // 액세스 토큰 검증 메서드
-    // 토큰 검증 및 사용자 ID 추출
+
+
+    public String createRefreshToken(String userId) {
+        Claims claims = Jwts.claims().setSubject(userId);
+        claims.put("type", "refresh");
+
+        Date expiredDate = Date.from(Instant.now().plus(refreshTokenExpiration, ChronoUnit.MILLIS));
+        return Jwts.builder()
+                .signWith(refreshSigningKey, SignatureAlgorithm.HS256)
+                .setClaims(claims)
+                .setId(UUID.randomUUID().toString())
+                .setIssuedAt(new Date())
+                .setExpiration(expiredDate)
+                .compact();
+    }
+
     public String validate(String token) {
         try {
             Claims claims = Jwts.parserBuilder()
-                    .setSigningKey(signingKey)  // secretKey 대신 signingKey 사용
+                    .setSigningKey(signingKey)
+                    .setAllowedClockSkewSeconds(30) // Consistent 30-second skew
                     .build()
                     .parseClaimsJws(token)
                     .getBody();
             return claims.getSubject();
-        } catch (Exception exception) {
-            exception.printStackTrace();
+        } catch (ExpiredJwtException e) {
+            log.error("Access token expired: {}", e.getMessage());
+            return null;
+        } catch (Exception e) {
+            log.error("Invalid access token: {}", e.getMessage());
             return null;
         }
-    }
-
-    // 액세스 토큰 만료 시간 반환 (초 단위)
-    public long getAccessTokenExpirationTime() {
-        return ACCESS_TOKEN_EXPIRATION / 1000;
-    }
-
-    // 리프레시 토큰 만료 시간 반환 (초 단위)
-    public long getRefreshTokenExpirationTime() {
-        return REFRESH_TOKEN_EXPIRATION / 1000;
     }
 
     public Optional<String> validateRefreshToken(String refreshToken) {
         try {
-            Claims claims = Jwts.parser()
-                    .setSigningKey(secretKey)
-                    .parseClaimsJws(refreshToken)
-                    .getBody();
-
-            return Optional.ofNullable(claims.getSubject());
-        } catch (JwtException | IllegalArgumentException e) {
-            log.error("Invalid refresh token: {}", e.getMessage());
-            return Optional.empty();
-        }
-    }
-    // 토큰 검증을 위한 공통 메서드
-    public boolean validateToken(String token) {
-        try {
-            Jwts.parser().setSigningKey(secretKey).parseClaimsJws(token);
-            return true;
-        } catch (JwtException | IllegalArgumentException e) {
-            log.error("Invalid token: {}", e.getMessage());
-            return false;
-        }
-    }
-
-    // 리프레시 토큰에서 토큰 ID 추출
-    public String getTokenIdFromRefreshToken(String refreshToken) {
-        try {
-            Key key = Keys.hmacShaKeyFor(refreshKey.getBytes(StandardCharsets.UTF_8));
-
-            // JWT 파싱
             Claims claims = Jwts.parserBuilder()
-                    .setSigningKey(key)
+                    .setSigningKey(refreshSigningKey)
+                    .setAllowedClockSkewSeconds(30)
                     .build()
                     .parseClaimsJws(refreshToken)
                     .getBody();
 
-            return claims.getId();  // 토큰 ID 반환
-        } catch (Exception exception) {
-            exception.printStackTrace();
+            String tokenType = claims.get("type", String.class);
+            if (!"refresh".equals(tokenType)) {
+                log.error("Invalid token type: {}", tokenType);
+                return Optional.empty();
+            }
+
+            return Optional.ofNullable(claims.getSubject());
+        } catch (ExpiredJwtException e) {
+            log.error("Refresh token expired: {}", e.getMessage());
+            return Optional.empty();
+        } catch (Exception e) {
+            log.error("Invalid refresh token: {}", e.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    public boolean validateToken(String token) {
+        try {
+            Jwts.parserBuilder()
+                    .setSigningKey(signingKey)
+                    .setAllowedClockSkewSeconds(30)
+                    .build()
+                    .parseClaimsJws(token);
+            return true;
+        } catch (ExpiredJwtException e) {
+            log.error("Token expired: {}", e.getMessage());
+            return false;
+        } catch (Exception e) {
+            log.error("Token validation failed: {}", e.getMessage());
+            return false;
+        }
+    }
+
+    public String getTokenIdFromRefreshToken(String refreshToken) {
+        try {
+            Claims claims = Jwts.parserBuilder()
+                    .setSigningKey(refreshSigningKey)
+                    .setAllowedClockSkewSeconds(30)
+                    .build()
+                    .parseClaimsJws(refreshToken)
+                    .getBody();
+            return claims.getId();
+        } catch (Exception e) {
+            log.error("Failed to extract token ID: {}", e.getMessage());
             return null;
         }
     }
 
-    // 사용자 ID와 역할로 새 액세스 토큰 발급
+    public boolean verifyRefreshToken(String refreshToken) {
+        String tokenId = getTokenIdFromRefreshToken(refreshToken);
+        if (tokenId == null) {
+            log.error("No token ID extracted from refresh token");
+            return false;
+        }
+
+        Optional<RefreshTokenEntity> tokenOpt = refreshTokenRepository.findByToken(refreshToken);
+        if (tokenOpt.isEmpty()) {
+            log.error("Refresh token not found in database");
+            return false;
+        }
+
+        RefreshTokenEntity tokenEntity = tokenOpt.get();
+        log.info("Token details - User: {}, Revoked: {}, Expired: {}",
+                tokenEntity.getUser().getUserId(),
+                tokenEntity.isRevoked(),
+                tokenEntity.isExpired());
+
+        // Allow token refresh even if previous token was revoked
+        if (tokenEntity.isExpired()) {
+            log.warn("Refresh token is expired");
+            return false;
+        }
+
+        return true;
+    }
+
     public Optional<String> refreshAccessToken(String refreshToken) {
         if (!verifyRefreshToken(refreshToken)) {
+            log.error("Refresh token verification failed");
             return Optional.empty();
         }
 
         String userId = validateRefreshToken(refreshToken).orElse(null);
         if (userId == null) {
+            log.error("No user ID found in refresh token");
             return Optional.empty();
         }
 
-        // 사용자 역할을 불러오는 로직 필요
-        String role = "USER"; // 예시: 실제로는 DB에서 조회 필요
+        Optional<UserEntity> userOpt = userRepository.findById(userId);
+        if (userOpt.isEmpty()) {
+            log.error("User not found: {}", userId);
+            return Optional.empty();
+        }
 
+        String role = userOpt.get().getRole();
         return Optional.of(create(userId, role));
     }
 
-
-    // 기존 메서드 일부 수정 예시
-// 리프레시 토큰 저장 메서드
     public void saveRefreshToken(UserEntity user, String refreshToken) {
         String tokenId = getTokenIdFromRefreshToken(refreshToken);
         if (tokenId == null) {
-            System.out.println("토큰 ID를 추출하지 못했습니다.");
+            log.error("Failed to extract token ID from refresh token");
+            log.error("Full refresh token: {}", refreshToken);
             return;
         }
 
-        // 기존 토큰이 있으면 모두 삭제 (혹은 업데이트)
-        List<RefreshTokenEntity> tokens = refreshTokenRepository.findByUser(user);
-        if (!tokens.isEmpty()) {
-            tokens.forEach(refreshTokenRepository::delete);
+        // Log all existing tokens before saving
+        List<RefreshTokenEntity> existingTokens = refreshTokenRepository.findByUser(user);
+        for (RefreshTokenEntity existingToken : existingTokens) {
+            // Instead of deleting, just mark as revoked
+            existingToken.setRevoked(true);
+            refreshTokenRepository.save(existingToken);
         }
+        log.info("Existing tokens for user {}: {}", user.getUserId(), existingTokens.size());
 
-        // 새 토큰 저장
         RefreshTokenEntity tokenEntity = new RefreshTokenEntity();
         tokenEntity.setId(tokenId);
         tokenEntity.setUser(user);
         tokenEntity.setToken(refreshToken);
-        tokenEntity.setExpiryDate(Instant.now().plus(refreshTokenExpiration, ChronoUnit.DAYS));
+        tokenEntity.setExpiryDate(Instant.now().plus(refreshTokenExpiration, ChronoUnit.MILLIS));
         tokenEntity.setRevoked(false);
 
         refreshTokenRepository.save(tokenEntity);
-        System.out.println("새 refresh token 저장됨: " + refreshToken);
-    }
-
-    // 리프레시 토큰 검증 (데이터베이스 기반)
-    public boolean verifyRefreshToken(String refreshToken) {
-        // 토큰 ID 추출
-        String tokenId = getTokenIdFromRefreshToken(refreshToken);
-        if (tokenId == null) return false;
-
-        // 데이터베이스에서 토큰 조회
-        Optional<RefreshTokenEntity> tokenOpt = refreshTokenRepository.findByToken(refreshToken);
-        if (tokenOpt.isEmpty()) return false;
-
-        // Optional에서 값을 꺼내서 토큰 검증
-        RefreshTokenEntity tokenEntity = tokenOpt.get();
-
-        // 토큰 상태 확인
-        return !tokenEntity.isRevoked() && !tokenEntity.isExpired();
+        log.info("Refresh token saved for user: {}, tokenId: {}", user.getUserId(), tokenId);
     }
 
 
-    // 리프레시 토큰 폐기
     public void revokeRefreshToken(String refreshToken) {
         Optional<RefreshTokenEntity> tokenOpt = refreshTokenRepository.findByToken(refreshToken);
         tokenOpt.ifPresent(token -> {
-            token.setRevoked(true);
-            refreshTokenRepository.save(token);
+            if (!token.isExpired()) {
+                token.setRevoked(true);
+                refreshTokenRepository.save(token);
+                log.info("Refresh token revoked: {}", refreshToken); // 디버깅 로그 추가
+            } else {
+                log.warn("Attempted to revoke already expired token: {}", refreshToken);
+            }
         });
+        if (tokenOpt.isEmpty()) {
+            log.warn("Refresh token not found in repository: {}", refreshToken);
+        }
     }
 
-    // 모든 리프레시 토큰 폐기 (로그아웃 시)
     public void revokeAllUserTokens(String userId) {
-        // UserEntity를 통해 삭제하도록 함
         Optional<UserEntity> userOpt = userRepository.findById(userId);
         userOpt.ifPresent(user -> refreshTokenRepository.deleteByUser(user));
     }
+
+    public long getAccessTokenExpirationTime() {
+        long expiresInSeconds = accessTokenExpiration / 1000;
+        log.info("getAccessTokenExpirationTime: {} seconds", expiresInSeconds);
+        return expiresInSeconds; // 3600초 반환
+    }
+
+    public long getRefreshTokenExpirationTime() {
+        return refreshTokenExpiration / 1000; // Convert to seconds
+    }
+
+
 }

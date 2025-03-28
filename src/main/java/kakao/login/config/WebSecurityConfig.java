@@ -10,6 +10,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Configurable;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.security.config.annotation.method.configuration.EnableGlobalMethodSecurity;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.CsrfConfigurer;
@@ -53,10 +55,19 @@ public class WebSecurityConfig {
 
                 // URL 별 접근 권한 설정
                 .authorizeHttpRequests(request -> request
-                        .requestMatchers("/", "/api/v1/auth/**", "/oauth2/**", "/api/v1/naver/**", "/api/v1/user/**", "/api/v1/detail/**").permitAll()  // 누구나 접근 가능한 URL
-                        .requestMatchers("/api/v1/user/**").hasRole("USER")  // USER 역할만 접근 가능
+                        // 정적 리소스 허용
+                        .requestMatchers("/uploads/**", "/api/uploads/**").permitAll()
+                        .requestMatchers("/", "/api/**", "/api/v1/auth/**", "/oauth2/**", "/api/v1/naver/**", "/api/v1/user/**", "/api/v1/detail/**", "/api/v1/chat/**").permitAll()  // 누구나 접근 가능한 URL
                         .requestMatchers("/api/v1/admin/**", "/api/v1/detail/department/**").hasRole("ADMIN")  // ADMIN 역할만 접근 가능
                         .requestMatchers("/api/v1/detail/employment/signup").hasRole("ADMIN")  // 관리자만 접근 가능
+                        .requestMatchers("/ws/**").permitAll() // Or .hasRole("ROLE_USER")
+                        .requestMatchers(
+                                "/practice-ui.html",
+                                "/swagger-ui.html",
+                                "/swagger-ui/**",
+                                "/v3/api-docs/**",
+                                "/api-docs/**"
+                        ).permitAll()
                         .anyRequest().authenticated()  // 나머지 요청은 인증된 사용자만 접근 가능
                 )
 
@@ -96,7 +107,7 @@ public class WebSecurityConfig {
         corsConfiguration.setAllowCredentials(true);  // 쿠키 전송 허용 (true)
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-        source.registerCorsConfiguration("/api/v1/**", corsConfiguration);  // 특정 URL 경로에 CORS 설정 적용
+        source.registerCorsConfiguration("/**", corsConfiguration);  // 특정 URL 경로에 CORS 설정 적용
 
         return source;
     }

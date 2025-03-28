@@ -1,6 +1,5 @@
 package kakao.login.service;
 
-import jakarta.persistence.EntityManager;
 import jakarta.transaction.Transactional;
 import kakao.login.dto.request.message.EmployeeRequestDTO;
 import kakao.login.entity.DepartmentEntity;
@@ -11,9 +10,11 @@ import kakao.login.repository.DepartmentRepository;
 import kakao.login.repository.EmployeeRepository;
 import kakao.login.repository.SectionRepository;
 import kakao.login.repository.UserRepository;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -344,11 +345,36 @@ public class EmployeeService {
     }
 
 
+    //    @Transactional
+//    public EmployeeEntity getEmployeeByUserId(String userId) {
+//        return employeeRepository.findEmployeeWithUser(userId)
+//                .orElseThrow(() -> new RuntimeException("해당 직원이 존재하지 않습니다."));
+//    }
     @Transactional
     public EmployeeEntity getEmployeeByUserId(String userId) {
-        return employeeRepository.findEmployeeWithUser(userId)
+        String normalizedUserId = userId;
+
+        // 이미 prefix가 붙은 경우 그대로 사용
+        if (userId.startsWith("kakao_") || userId.startsWith("naver_")) {
+            normalizedUserId = userId;
+        } else {
+            // 로그인 방식에 따라 prefix를 붙여야 함
+            Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+            if (authentication != null && authentication.getPrincipal() instanceof OAuth2User oAuth2User) {
+                String provider = oAuth2User.getAttribute("provider"); // 또는 registrationId 방식 사용
+                if ("kakao".equalsIgnoreCase(provider)) {
+                    normalizedUserId = "kakao_" + userId;
+                } else if ("naver".equalsIgnoreCase(provider)) {
+                    normalizedUserId = "naver_" + userId;
+                }
+            }
+            // 일반 로그인인 경우는 접두어 없이 그대로 사용
+        }
+
+        log.info("Employee 조회를 위한 normalizedUserId: {}", normalizedUserId);
+
+        return employeeRepository.findEmployeeWithUser(normalizedUserId)
                 .orElseThrow(() -> new RuntimeException("해당 직원이 존재하지 않습니다."));
     }
-
 
 }

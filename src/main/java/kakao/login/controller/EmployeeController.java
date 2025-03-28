@@ -111,7 +111,7 @@ public class EmployeeController {
 
     //조직도 수정에서 카드 직원 클릭하면 수정, 삭제 하는 기능
     // ✏ 직원 수정 API
-    @PreAuthorize("hasRole('ROLE_ADMIN')")
+    @PreAuthorize("hasRole('ADMIN')")
     @PutMapping("/employee/{employeeId}/update")
     public ResponseEntity<String> updateEmployee(
             @PathVariable Long employeeId,

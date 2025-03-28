@@ -7,6 +7,8 @@
     import kakao.login.service.AuthService;
     import lombok.RequiredArgsConstructor;
     import org.springframework.http.*;
+    import org.springframework.messaging.simp.SimpMessagingTemplate;
+    import org.springframework.security.core.context.SecurityContextHolder;
     import org.springframework.web.bind.annotation.*;
     import kakao.login.dto.request.auth.RefreshTokenRequestDto;  // 추가된 임포트문
 
@@ -17,6 +19,7 @@
     public class AuthController {
 
         private final AuthService authService;  // 인증 서비스 주입
+        private final SimpMessagingTemplate messagingTemplate;
 
         // ID 중복 확인 엔드포인트
         @PostMapping("/id-check")
@@ -66,6 +69,11 @@
                     .build();
 
             response.addHeader("Set-Cookie", cookie.toString());  // 쿠키 추가
+            // 현재 인증된 사용자(userId) 조회 (SNS 로그인 시에도 SecurityContext에 정보가 있을 경우)
+            String userId = SecurityContextHolder.getContext().getAuthentication().getName();
+            // 웹소켓 연결 종료 메시지 전송
+            messagingTemplate.convertAndSendToUser(userId, "/queue/disconnect", "disconnect");
+
             return ResponseEntity.ok("로그아웃 완료");
         }
 
@@ -81,6 +89,11 @@
                     .build();
 
             response.addHeader("Set-Cookie", cookie.toString());  // 쿠키 추가
+            // 현재 인증된 사용자(userId) 조회
+            String userId = SecurityContextHolder.getContext().getAuthentication().getName();
+            // 웹소켓 연결 종료 메시지 전송
+            messagingTemplate.convertAndSendToUser(userId, "/queue/disconnect", "disconnect");
+
             return ResponseEntity.ok("로그아웃 완료");
         }
 
@@ -98,6 +111,11 @@
                     .build();
 
             response.addHeader("Set-Cookie", cookie.toString());  // 쿠키 추가
+            // 현재 인증된 사용자(userId) 조회
+            String userId = SecurityContextHolder.getContext().getAuthentication().getName();
+            // 웹소켓 연결 종료 메시지 전송
+            messagingTemplate.convertAndSendToUser(userId, "/queue/disconnect", "disconnect");
+
             return ResponseEntity.ok("로그아웃 완료");
         }
 

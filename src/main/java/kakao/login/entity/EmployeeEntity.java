@@ -60,7 +60,7 @@ public class EmployeeEntity {
     public String getProfileImageBase64() {
         if (profileImage != null && profileImage.length > 0) {
             String base64 = Base64.getEncoder().encodeToString(profileImage);
-            System.out.println("Base64 Encoded Image: " + base64.substring(0, 50) + "...");
+//            System.out.println("Base64 Encoded Image: " + base64.substring(0, 50) + "...");
             return base64;
         }
         System.out.println("profileImage is null or empty");

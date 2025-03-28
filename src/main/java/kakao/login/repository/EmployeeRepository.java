@@ -50,4 +50,5 @@ public interface EmployeeRepository extends JpaRepository<EmployeeEntity, Long> 
     @Query("UPDATE EmployeeEntity e SET e.kakaoUuid = :kakaoUuid WHERE e.user.userId = :userId")
     void updateEmployeeKakaoUuid(@Param("userId") String userId, @Param("kakaoUuid") String kakaoUuid);
 
+
 }

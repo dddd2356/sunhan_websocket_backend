@@ -4,7 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import kakao.login.entity.CustomOAuth2User;
 import kakao.login.entity.UserEntity;
 import kakao.login.repository.UserRepository;
-import kakao.login.service.KakaoMessageService;
+//import kakao.login.service.KakaoMessageService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.oauth2.client.userinfo.DefaultOAuth2UserService;
 import org.springframework.security.oauth2.client.userinfo.OAuth2UserRequest;
@@ -21,7 +21,7 @@ public class OAuth2UserServiceImplement extends DefaultOAuth2UserService {
 
     // 필요한 의존성 주입
     private final UserRepository userRepository;
-    private final KakaoMessageService kakaoMessageService; // KakaoMessageService를 사용하여 친구 목록을 가져옵니다.
+    //private final KakaoMessageService kakaoMessageService; // KakaoMessageService를 사용하여 친구 목록을 가져옵니다.
 
     // OAuth2 인증 정보를 처리하는 메서드
     @Override
@@ -59,12 +59,12 @@ public class OAuth2UserServiceImplement extends DefaultOAuth2UserService {
 
             // 카카오 UUID는 친구 목록에서 받아오는 값이어야 함
             // KakaoMessageService를 사용하여 카카오 친구 목록을 가져오고, 해당 UUID를 찾아서 설정
-            String accessToken = request.getAccessToken().getTokenValue(); // 액세스 토큰
-            kakaoUuid = kakaoMessageService.getKakaoFriends(accessToken).stream()
-                    .filter(friend -> friend.get("allowed_msg").equals("true")) // 메시지 허용 친구 필터링
-                    .map(friend -> (String) friend.get("uuid"))
-                    .findFirst()
-                    .orElse(null); // 첫 번째 유효한 카카오 UUID 가져오기
+//            String accessToken = request.getAccessToken().getTokenValue(); // 액세스 토큰
+//            kakaoUuid = kakaoMessageService.getKakaoFriends(accessToken).stream()
+//                    .filter(friend -> friend.get("allowed_msg").equals("true")) // 메시지 허용 친구 필터링
+//                    .map(friend -> (String) friend.get("uuid"))
+//                    .findFirst()
+//                    .orElse(null); // 첫 번째 유효한 카카오 UUID 가져오기
         } else if (oauthClientName.equals("naver")) {
             // 네이버 로그인인 경우
             Map<String, String> responseMap = (Map<String, String>) oAuth2User.getAttributes().get("response");
