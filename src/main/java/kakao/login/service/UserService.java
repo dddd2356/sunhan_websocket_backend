@@ -1,18 +1,29 @@
 package kakao.login.service;
 
+import kakao.login.entity.EmployeeEntity;
 import kakao.login.entity.UserEntity;
+import kakao.login.repository.EmployeeRepository;
 import kakao.login.repository.UserRepository;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Optional;
 
 @Service
 public class UserService {
 
     private final UserRepository userRepository;  // UserRepository 주입
-
-    public UserService(UserRepository userRepository) {
+    private final EmployeeRepository employeeRepository;
+    @Autowired
+    public UserService(UserRepository userRepository, EmployeeRepository employeeRepository) {
         this.userRepository = userRepository;
+        this.employeeRepository = employeeRepository;
+    }
+
+    public String getEmployeeName(String userId) {
+        Optional<EmployeeEntity> employee = employeeRepository.findEmployeeWithUser(userId);
+        return employee.map(EmployeeEntity::getName).orElse(null);
     }
 
     // 모든 유저 조회 메서드

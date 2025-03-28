@@ -6,6 +6,7 @@ import kakao.login.provider.JwtProvider;
 import kakao.login.repository.RefreshTokenRepository;
 import kakao.login.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -13,7 +14,7 @@ import java.time.Instant;
 import java.util.*;
 
 @Service
-
+@Slf4j
 public class RefreshTokenServiceImplement {
 
     private final RefreshTokenRepository refreshTokenRepository;
@@ -89,29 +90,57 @@ public class RefreshTokenServiceImplement {
 
     @Transactional
     public Optional<Map<String, Object>> refreshAccessToken(String refreshToken) {
-        Optional<RefreshTokenEntity> tokenOpt = findByToken(refreshToken);
-        if (tokenOpt.isEmpty() || !verifyExpiration(tokenOpt.get())) {
+        try {
+            // Validate the refresh token
+            Optional<String> userIdOpt = jwtProvider.validateRefreshToken(refreshToken);
+            if (userIdOpt.isEmpty()) {
+                log.error("Invalid refresh token");
+                return Optional.empty();
+            }
+
+            String userId = userIdOpt.get();
+
+            // Find the token in the database
+            Optional<RefreshTokenEntity> tokenOpt = refreshTokenRepository.findByToken(refreshToken);
+            if (tokenOpt.isEmpty() || tokenOpt.get().isRevoked()) {
+                log.error("Refresh token not found or revoked");
+                return Optional.empty();
+            }
+
+            RefreshTokenEntity tokenEntity = tokenOpt.get();
+
+            // Check if the token is expired
+            if (tokenEntity.getExpiryDate().isBefore(Instant.now())) {
+                log.error("Refresh token has expired");
+                tokenEntity.setRevoked(true);
+                refreshTokenRepository.save(tokenEntity);
+                return Optional.empty();
+            }
+
+            // Revoke the current refresh token
+            tokenEntity.setRevoked(true);
+            refreshTokenRepository.save(tokenEntity);
+
+            // Find the user
+            UserEntity user = userRepository.findById(userId)
+                    .orElseThrow(() -> new RuntimeException("User not found: " + userId));
+
+            // Create new access token
+            String newAccessToken = jwtProvider.create(userId, user.getRole());
+
+            // Create new refresh token
+            RefreshTokenEntity newRefreshTokenEntity = createRefreshToken(userId);
+
+            Map<String, Object> result = new HashMap<>();
+            result.put("accessToken", newAccessToken);
+            result.put("refreshToken", newRefreshTokenEntity.getToken());
+
+            return Optional.of(result);
+
+        } catch (Exception e) {
+            log.error("Error refreshing token", e);
             return Optional.empty();
         }
-        RefreshTokenEntity tokenEntity = tokenOpt.get();
-
-        // refresh 토큰 사용 후 폐기 처리
-        tokenEntity.setRevoked(true);
-        refreshTokenRepository.save(tokenEntity);
-
-        // 새로운 access 토큰 생성
-        String userId = tokenEntity.getUser().getUserId();
-        String role = tokenEntity.getUser().getRole();
-        String newAccessToken = jwtProvider.create(userId, role);
-
-        // 회전 방식: 새 refresh 토큰 생성
-        RefreshTokenEntity newRefreshTokenEntity = createRefreshToken(userId);
-
-        Map<String, Object> result = new HashMap<>();
-        result.put("accessToken", newAccessToken);
-        result.put("refreshToken", newRefreshTokenEntity.getToken());
-
-        return Optional.of(result);
     }
 
 

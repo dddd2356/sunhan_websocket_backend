@@ -10,7 +10,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
-import java.util.Optional;
 
 @Slf4j
 @RestController
@@ -22,38 +21,36 @@ public class TokenRefreshController {
 
     @PostMapping("/refresh")
     public ResponseEntity<?> refreshToken(@RequestBody RefreshTokenRequestDto requestBody) {
-        log.info("토큰 갱신 요청 수신");
-
+        log.info("Token refresh request received");
         if (requestBody.getRefreshToken() == null || requestBody.getRefreshToken().isEmpty()) {
+            log.warn("Refresh token not provided");
             return RefreshTokenResponseDto.refreshTokenNotProvided();
         }
 
-        log.info("토큰 갱신 요청 수신: {}...", requestBody.getRefreshToken().substring(0, 10));
-
+        String refreshToken = requestBody.getRefreshToken();
+        log.info("Refreshing token: {}...", refreshToken.substring(0, Math.min(10, refreshToken.length())));
         return authService.refreshToken(requestBody);
     }
-
 
     @GetMapping("/validate-token")
     public ResponseEntity<?> validateToken(@RequestHeader("Authorization") String authHeader) {
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+            log.warn("Invalid Authorization header: {}", authHeader);
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(Map.of("valid", false, "message", "Authorization header must start with Bearer"));
         }
 
         String token = authHeader.replace("Bearer ", "");
-        if (token.length() > 10) {
-            log.info("토큰 검증 요청: {}...", token.substring(0, 10));
-        }
+        log.info("Validating token: {}...", token.substring(0, Math.min(10, token.length())));
 
         boolean isValid = authService.validateToken(token);
-
         if (isValid) {
-            log.info("토큰 유효함");
+            log.info("Token is valid");
             return ResponseEntity.ok().body(Map.of("valid", true));
         } else {
-            log.info("토큰 유효하지 않음");
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("valid", false));
+            log.warn("Token is invalid or expired");
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(Map.of("valid", false, "message", "Token is invalid or has expired"));
         }
     }
 }

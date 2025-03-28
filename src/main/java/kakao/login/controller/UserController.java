@@ -1,4 +1,5 @@
 package kakao.login.controller;
+
 import kakao.login.service.UserService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
@@ -21,25 +22,26 @@ public class UserController {
         this.userService = userService;
     }
 
-    // 현재 인증된 사용자 정보를 반환하는 엔드포인트
     @GetMapping("/me")
-    public ResponseEntity<?> getCurrentUser(Authentication authentication) {
-        // authentication.getName() 또는 인증 객체를 이용해 사용자 정보를 조회할 수 있습니다.
-        // 예: 데이터베이스에서 사용자 엔티티를 조회 후 필요한 정보만 반환
+    public ResponseEntity<Map<String, Object>> getCurrentUser(Authentication authentication) {
+        String userId = authentication.getName(); // 예: kakao_3924653164, naver_[id]
+        String employeeName = userService.getEmployeeName(userId); // employee.name, 없으면 null
 
-        // 여기서는 간단하게 인증 객체의 정보를 그대로 반환하는 예시입니다.
-        return ResponseEntity.ok(authentication);
+        Map<String, Object> response = new HashMap<>();
+        response.put("authenticated", authentication.isAuthenticated());
+        response.put("authorities", authentication.getAuthorities());
+        response.put("principal", userId);
+        if (employeeName != null) {
+            response.put("name", employeeName); // employee.name이 있을 때만 추가
+        }
+        return ResponseEntity.ok(response);
     }
 
     @GetMapping("/role/{userId}")
     public ResponseEntity<Map<String, Object>> getUserRole(@PathVariable String userId) {
         Map<String, Object> response = new HashMap<>();
-
-        // 서비스에서 역할 정보를 가져옴
         String role = userService.getUserRole(userId);
         response.put("role", role);
-
         return ResponseEntity.ok(response);
     }
-
 }
