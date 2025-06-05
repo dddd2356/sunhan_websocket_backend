@@ -26,7 +26,10 @@ public class WebConfig implements WebMvcConfigurer {
                 .toAbsolutePath().toString() + "/";
 
         // ① "/api/uploads/**" 로도, ② "/uploads/**" 로도 매핑
-        registry.addResourceHandler("/api/uploads/**", "/uploads/**")
-                .addResourceLocations("file:" + absolutePath);
+        // 하나의 경로로 통일
+        registry.addResourceHandler("/uploads/**")
+                .addResourceLocations("file:" + absolutePath)
+                .setCachePeriod(3600)  // 캐시 설정 추가
+                .resourceChain(true);  // 리소스 체인 활성화
     }
 }

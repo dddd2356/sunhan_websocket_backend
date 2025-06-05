@@ -197,6 +197,24 @@ public class ChatController {
             @RequestParam String messageId,
             @RequestParam String userId) {
         chatService.markMessagesAsRead(messageId, userId);
+        // 방의 모든 참가자에 대해 unreadCount 갱신
+        ChatRoom room = chatRoomService.getChatRoom(Long.valueOf(roomId))
+                .orElseThrow(() -> new RuntimeException("Chat room not found: " + roomId));
+        Map<String, Long> unreadCounts = new HashMap<>();
+        for (String participantId : room.getActiveParticipants().stream()
+                .map(p -> p.getUser().getUserId())
+                .collect(Collectors.toList())) {
+            long unreadCount = chatService.getUnreadCount(Long.valueOf(roomId), participantId);
+            unreadCounts.put(participantId, unreadCount);
+        }
+        messagingTemplate.convertAndSend(
+                "/topic/chat/" + roomId + "/unread-count",
+                Map.of(
+                        "userId", userId,
+                        "unreadCounts", unreadCounts
+                )
+        );
+        log.info("Broadcasted unreadCounts for room {} after single message read: {}", roomId, unreadCounts);
         return ResponseEntity.ok().build();
     }
 
@@ -319,33 +337,6 @@ public class ChatController {
         }
     }
 
-    @GetMapping("/rooms/main")
-    public ResponseEntity<ChatRoomRequestDto> getMainChatRoom(
-            @AuthenticationPrincipal String loginUserId) {
-        return chatRoomService.getMainChatRoom()
-                .map(room -> ResponseEntity.ok(chatRoomService.toDto(room, loginUserId)))
-                .orElse(ResponseEntity.notFound().build());
-    }
-
-    @GetMapping("/history/main")
-    public ResponseEntity<Page<ChatMessage>> getMainChatHistory(Pageable pageable) {
-        Page<ChatMessage> messages = chatService.getMainChatHistory(pageable);
-        return ResponseEntity.ok(messages);
-    }
-
-    @GetMapping("/rooms/main/messages")
-    public ResponseEntity<Page<ChatMessage>> getMainChatMessages(
-            Pageable pageable,
-            @RequestParam String userId) {
-        Optional<ChatRoom> mainRoom = chatService.getMainChatRoom();
-        if (mainRoom.isPresent()) {
-            Page<ChatMessage> messages = chatService.getMessages(mainRoom.get().getId(), pageable, userId);
-            return ResponseEntity.ok(messages);
-        } else {
-            return ResponseEntity.notFound().build();
-        }
-    }
-
     @PostMapping("/rooms/{roomId}/exit")
     public ResponseEntity<?> exitChatRoom(@PathVariable Long roomId) {
         try {
@@ -399,14 +390,14 @@ public class ChatController {
         }
     }
 
-
     /**
      * 파일/이미지 업로드 후, 해당 첨부 메시지를 생성·브로드캐스트
      */
     @PostMapping("/rooms/{roomId}/attachments")
     public ResponseEntity<ChatMessageRequestDto> uploadAttachment(
             @PathVariable Long roomId,
-            @RequestParam("file") MultipartFile file) {
+            @RequestParam("file") MultipartFile file,
+            HttpServletRequest request) {
 
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         String senderId = auth.getName();
@@ -414,47 +405,80 @@ public class ChatController {
         if (sender == null) {
             throw new RuntimeException("Sender not found with userId: " + senderId);
         }
-        // 1) 파일 저장
-        String url = fileStorageService.store(file);
 
-        // 2) ChatMessage 엔티티 생성
-        ChatMessage msg = new ChatMessage();
-        msg.setRoomId(roomId);
-        msg.setSenderId(senderId);
-        msg.setSenderName(sender.getName()); // Add sender name
-        msg.setTimestamp(LocalDateTime.now());
-        msg.setType(ChatMessage.MessageType.CHAT);
-        // content는 null 처리
-        msg.setContent("");  // 본문은 비워두기
+        chatService.insertDateSeparatorIfNeeded(roomId);
 
-        // 3) 첨부 메타정보 설정
-        String contentType = file.getContentType();
-        boolean isImage = contentType != null && contentType.startsWith("image/");
-        msg.setAttachmentType(isImage ? "image" : "file");
-        msg.setAttachmentUrl(url);
-        msg.setAttachmentName(file.getOriginalFilename());
-
-        // 4-1) 방 정보 조회 (participants 포함)
         ChatRoom room = chatRoomService.getChatRoom(roomId)
                 .orElseThrow(() -> new RuntimeException("Chat room not found: " + roomId));
         Hibernate.initialize(room.getChatRoomParticipants());
-
-        // 4-2) 자신을 제외한 활성 참가자 수 계산
         int activeCount = (int) room.getActiveParticipants().stream()
                 .filter(p -> !p.getUser().getUserId().equals(senderId))
                 .count();
-        msg.setParticipantCountAtSend(activeCount);
 
-        // 4-3) 발신자는 이미 읽은 상태로 초깃값 세팅
+        String contentType = file.getContentType();
+        boolean isImage = contentType != null && contentType.startsWith("image/");
+        ChatMessage uploadingMsg = new ChatMessage();
+        uploadingMsg.setRoomId(roomId);
+        uploadingMsg.setSenderId(senderId);
+        uploadingMsg.setSenderName(sender.getName());
+        uploadingMsg.setTimestamp(LocalDateTime.now());
+        uploadingMsg.setType(ChatMessage.MessageType.CHAT);
+        uploadingMsg.setContent("");
+        uploadingMsg.setAttachmentType(isImage ? "image" : "file");
+        uploadingMsg.setAttachmentName(file.getOriginalFilename());
+        uploadingMsg.setStatus("uploading");
+        uploadingMsg.setParticipantCountAtSend(activeCount);
+        uploadingMsg.setReadBy(new ArrayList<>(List.of(senderId)));
+        ChatMessageRequestDto uploadingDto = ChatMessageRequestDto.of(uploadingMsg);
+        messagingTemplate.convertAndSend("/topic/chat/" + roomId, uploadingDto);
+
+        String relativePath = fileStorageService.store(file);
+        String baseUrl = request.getScheme() + "://" + request.getServerName() + ":" + request.getServerPort();
+        String absoluteUrl = baseUrl + relativePath;
+
+        boolean fileReady = false;
+        for (int i = 0; i < 10; i++) {
+            try {
+                java.net.URL url = new java.net.URL(absoluteUrl);
+                java.net.HttpURLConnection conn = (java.net.HttpURLConnection) url.openConnection();
+                conn.setRequestMethod("HEAD");
+                conn.setConnectTimeout(500);
+                conn.setReadTimeout(500);
+                int responseCode = conn.getResponseCode();
+                if (responseCode == 200) {
+                    fileReady = true;
+                    break;
+                }
+            } catch (Exception e) {
+                log.warn("파일 접근 시도 실패 (시도 {}/10): {}", i + 1, e.getMessage());
+            }
+            try { Thread.sleep(500); } catch (InterruptedException ignored) {}
+        }
+        if (!fileReady) {
+            log.error("파일이 5초 내에 접근 불가: {}", absoluteUrl);
+            throw new RuntimeException("파일 업로드 후 접근 실패: " + absoluteUrl);
+        }
+
+        ChatMessage msg = new ChatMessage();
+        msg.setRoomId(roomId);
+        msg.setSenderId(senderId);
+        msg.setSenderName(sender.getName());
+        msg.setTimestamp(LocalDateTime.now());
+        msg.setType(ChatMessage.MessageType.CHAT);
+        msg.setContent("");
+        msg.setAttachmentType(isImage ? "image" : "file");
+        msg.setAttachmentUrl(absoluteUrl);
+        msg.setAttachmentName(file.getOriginalFilename());
+        msg.setParticipantCountAtSend(activeCount);
         msg.setReadBy(new ArrayList<>(List.of(senderId)));
-        // 5) DB 저장 & DTO 매핑
+        msg.setStatus(null);
+
         ChatMessage saved = chatService.saveMessageEntity(msg);
-        // 6) WS 브로드캐스트
-        // DTO 로 변환
+
         ChatMessageRequestDto dto = ChatMessageRequestDto.of(saved);
-        // WS 브로드캐스트
+        log.info("브로드캐스트 메시지: {}", dto); // 디버깅 로그 강화
         messagingTemplate.convertAndSend("/topic/chat/" + roomId, dto);
-        // HTTP 응답도 DTO 로
+
         return ResponseEntity.ok(dto);
     }
 
@@ -486,8 +510,8 @@ public class ChatController {
         // 3) attachment 헤더 달아서 리턴
         return ResponseEntity.ok()
                 .contentType(MediaType.parseMediaType(contentType))
-                .header(HttpHeaders.CONTENT_DISPOSITION,
-                        "attachment; filename=\"" + resource.getFilename() + "\"")
+                .header(HttpHeaders.CACHE_CONTROL, "public, max-age=31536000") // 1년 캐싱
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + resource.getFilename() + "\"")
                 .body(resource);
     }
 
@@ -530,9 +554,7 @@ public class ChatController {
                 "unreadCount", count
         ));
     }
-
-
-
+    
     @PostMapping("/broadcast/all")
     public ResponseEntity<?> broadcastToAll(
             @RequestBody MessageRequestDto request,
@@ -656,6 +678,37 @@ public class ChatController {
         }
 
         return ResponseEntity.ok(Map.of("status","completed", "results", results));
+    }
+
+    @PostMapping("/rooms/{roomId}/read")
+    public ResponseEntity<Void> markRoomAsRead(
+            @PathVariable Long roomId,
+            @RequestBody Map<String, String> body) {
+        String userId = body.get("userId");
+        List<ChatMessage> updatedMessages = chatService.markAllMessagesAsRead(roomId, userId);
+
+        // 방의 모든 참가자에 대해 unreadCount 갱신
+        ChatRoom room = chatRoomService.getChatRoom(roomId)
+                .orElseThrow(() -> new RuntimeException("Chat room not found: " + roomId));
+        Map<String, Long> unreadCounts = new HashMap<>();
+        for (String participantId : room.getActiveParticipants().stream()
+                .map(p -> p.getUser().getUserId())
+                .collect(Collectors.toList())) {
+            long unreadCount = chatService.getUnreadCount(roomId, participantId);
+            unreadCounts.put(participantId, unreadCount);
+        }
+
+        // 단일 브로드캐스트로 모든 참가자의 unreadCount 전송
+        messagingTemplate.convertAndSend(
+                "/topic/chat/" + roomId + "/unread-count",
+                Map.of(
+                        "userId", userId,
+                        "unreadCounts", unreadCounts
+                )
+        );
+        log.info("Broadcasted unreadCounts for room {}: {}", roomId, unreadCounts);
+
+        return ResponseEntity.ok().build();
     }
 
 }

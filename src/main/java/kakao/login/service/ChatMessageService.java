@@ -17,6 +17,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 @Service
@@ -208,6 +209,17 @@ public class ChatMessageService {
         ChatMessageRequestDto dto = ChatMessageRequestDto.of(saved);
         messagingTemplate.convertAndSend("/topic/chat/" + saved.getRoomId(), dto);
         log.info("Broadcasted new message {} to /topic/chat/{}", saved.getId(), saved.getRoomId());
+
+        // --- unread-count 브로드캐스트 추가 ---
+        ChatRoom room = chatRoomRepository.findById(saved.getRoomId()).orElseThrow();
+        Map<String, Long> unreadCounts = room.getActiveParticipants().stream()
+                .map(p -> p.getUser().getUserId())
+                .collect(Collectors.toMap(Function.identity(), uid -> getUnreadCount(saved.getRoomId(), uid)));
+        messagingTemplate.convertAndSend(
+                "/topic/chat/" + saved.getRoomId() + "/unread-count",
+                Map.of("unreadCounts", unreadCounts)
+        );
+
         return saved;
     }
 
@@ -315,45 +327,26 @@ public class ChatMessageService {
         if (message.getReadBy() == null) {
             message.setReadBy(new ArrayList<>());
         }
-        if (!message.getReadBy().contains(userId)) {
+        if (!message.getReadBy().contains(userId) && !userId.equals(message.getSenderId())) {
             message.getReadBy().add(userId);
-            chatMessageRepository.save(message);
+            ChatMessage savedMessage = chatMessageRepository.save(message);
             log.info("Message {} marked as read by user {}. New readBy: {}",
-                    messageId, userId, message.getReadBy());
+                    messageId, userId, savedMessage.getReadBy());
 
-            ChatMessageRequestDto updatedMessage = ChatMessageRequestDto.of(message);
-            messagingTemplate.convertAndSend("/topic/chat/" + message.getRoomId(), updatedMessage);
-            log.info("Broadcasted message update: messageId={}, roomId={}, unreadCount={}",
-                    messageId, message.getRoomId(), updatedMessage.getUnreadCount());
+            // --- 전체 참가자 대상으로 통합 브로드캐스트 ---
+            ChatRoom room = chatRoomRepository.findById(savedMessage.getRoomId())
+                    .orElseThrow();
+            Map<String, Long> unreadCounts = room.getActiveParticipants().stream()
+                    .map(p -> p.getUser().getUserId())
+                    .collect(Collectors.toMap(Function.identity(), uid -> getUnreadCount(savedMessage.getRoomId(), uid)));
+
+            messagingTemplate.convertAndSend(
+                    "/topic/chat/" + savedMessage.getRoomId() + "/unread-count",
+                    Map.of("userId", userId, "unreadCounts", unreadCounts)
+            );
         } else {
-            log.info("Message {} already read by user {}", messageId, userId);
+            log.info("Message {} already read by user {} or is sender", messageId, userId);
         }
-
-        // 발신자 제외
-        if (userId.equals(message.getSenderId())) {
-            log.info("Skipping read for sender: messageId={}, userId={}", messageId, userId);
-            return;
-        }
-
-        // 이미 읽은 사용자 제외
-        if (message.getReadBy() != null && message.getReadBy().contains(userId)) {
-            log.info("Skipping read for already read user: messageId={}, userId={}", messageId, userId);
-            return;
-        }
-
-        // readBy 초기화 및 추가
-        if (message.getReadBy() == null) {
-            message.setReadBy(new ArrayList<>());
-        }
-
-        message.getReadBy().add(userId);
-        chatMessageRepository.save(message);
-        log.info("Marked message {} as read by user {}. New readBy: {}", messageId, userId, message.getReadBy());
-
-        // WebSocket으로 업데이트된 메시지 브로드캐스트
-        ChatMessageRequestDto updatedMessage = ChatMessageRequestDto.of(message);
-        messagingTemplate.convertAndSend("/topic/chat/" + message.getRoomId(), updatedMessage);
-        log.info("Broadcasted updated message {} to /topic/chat/{}", messageId, message.getRoomId());
     }
 
     public Optional<ChatRoom> findDirectChatRoom(String user1Id, String user2Id) {
@@ -404,6 +397,10 @@ public class ChatMessageService {
         // 시스템 메시지에 대해 readBy를 초기화
         message.setReadBy(new ArrayList<>()); // 시스템 메시지 읽음 처리 리스트 초기화
 
+        // 🔥 날짜 구분 메시지이면 flag 설정
+        if (senderId.equals(SYSTEM_SENDER_ID) && content.matches("^\\d{4}년 \\d{2}월 \\d{2}일$")) {
+            message.setDateMessage(true);
+        }
         return message;
     }
 
@@ -523,7 +520,7 @@ public class ChatMessageService {
     /**
      * 날짜가 변경된 경우 또는 채팅방의 첫 메시지인 경우 SYSTEM 타입의 날짜 메시지를 삽입
      */
-    private void insertDateSeparatorIfNeeded(Long roomId) {
+    public void insertDateSeparatorIfNeeded(Long roomId) {
         // 채팅방의 가장 최근 메시지 2개 조회
         List<ChatMessage> lastTwo = chatMessageRepository.findTop2ByRoomIdOrderByTimestampDesc(roomId);
 
@@ -555,5 +552,33 @@ public class ChatMessageService {
                     ChatMessageRequestDto.of(dateMsg));
         }
     }
+
+    @Transactional
+    public List<ChatMessage> markAllMessagesAsRead(Long roomId, String userId) {
+        List<ChatMessage> unreadMessages = chatMessageRepository.findUnreadMessagesByRoomIdAndUserId(roomId, userId);
+        for (ChatMessage message : unreadMessages) {
+            if (!message.getReadBy().contains(userId)) {
+                message.getReadBy().add(userId);
+                ChatMessage savedMessage = chatMessageRepository.save(message);
+                // 메시지별 읽음 상태 브로드캐스트
+                ChatMessageRequestDto dto = ChatMessageRequestDto.of(savedMessage);
+                messagingTemplate.convertAndSend("/topic/chat/" + roomId + "/read", Map.of(
+                        "messageId", savedMessage.getId(),
+                        "userId", userId
+                ));
+                log.info("Broadcasted read status for message {} by user {} to /topic/chat/{}/read", savedMessage.getId(), userId, roomId);
+            }
+        }
+        // 방 전체 unreadCount 브로드캐스트
+        long unreadCount = getUnreadCount(roomId, userId);
+        messagingTemplate.convertAndSend(
+                "/topic/chat/" + roomId + "/unread-count",
+                Map.of("unreadCount", unreadCount, "userId", userId)
+        );
+        log.info("Broadcasted unreadCount={} for room {} and user {} to /topic/chat/{}/unread-count", unreadCount, roomId, userId, roomId);
+        return unreadMessages;
+    }
+
+
 
 }

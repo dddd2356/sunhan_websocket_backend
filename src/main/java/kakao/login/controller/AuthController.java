@@ -118,5 +118,21 @@
 
             return ResponseEntity.ok("로그아웃 완료");
         }
+        // 토큰 유효성 검사 엔드포인트
+        @GetMapping("/verify-token")
+        public ResponseEntity<?> verifyToken(@RequestHeader("Authorization") String authorizationHeader) {
+            // Authorization: Bearer <token>
+            if (authorizationHeader == null || !authorizationHeader.startsWith("Bearer ")) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST).body("Authorization header is missing or invalid");
+            }
 
+            String token = authorizationHeader.substring(7); // "Bearer " 제외
+            boolean isValid = authService.validateToken(token);
+
+            if (isValid) {
+                return ResponseEntity.ok("Token is valid");
+            } else {
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Token is invalid or expired");
+            }
+        }
     }

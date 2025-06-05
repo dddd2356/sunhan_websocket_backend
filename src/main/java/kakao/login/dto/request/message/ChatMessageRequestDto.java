@@ -26,7 +26,8 @@ public class ChatMessageRequestDto {
     private List<String> readBy;
     private int unreadCount;
     private boolean deleted;
-
+    private int participantCountAtSend;
+    private String status; // "uploading", "done" 등
 
     public static ChatMessageRequestDto of(ChatMessage msg) {
         ChatMessageRequestDto dto = new ChatMessageRequestDto();
@@ -40,15 +41,18 @@ public class ChatMessageRequestDto {
         dto.setAttachmentName(msg.getAttachmentName());
         dto.setReadBy(msg.getReadBy());
         dto.setDeleted(msg.isDeleted());
+        dto.setParticipantCountAtSend(msg.getParticipantCountAtSend());
+        dto.setStatus(msg.getStatus());
 
-        // 읽은 사용자 수 계산 (발신자 제외)
-        Set<String> readBySet = msg.getReadBy() != null ? new HashSet<>(msg.getReadBy()) : new HashSet<>();
-        readBySet.remove(msg.getSenderId()); // 발신자 제외
+        // unreadCount 계산 (발신자 본인은 읽음 처리)
+        Set<String> readBySet = msg.getReadBy() != null ?
+                new HashSet<>(msg.getReadBy()) : new HashSet<>();
+        readBySet.remove(msg.getSenderId());
         int readCount = readBySet.size();
 
-        // unreadCount 계산
+        // 발신자 제외 계산 (participantCountAtSend - 1)
         int snapshot = msg.getParticipantCountAtSend();
-        int unread = Math.max(0, snapshot - readCount);
+        int unread = Math.max(0, (snapshot - 1) - readCount);
         dto.setUnreadCount(unread);
 
         // 디버깅 로그

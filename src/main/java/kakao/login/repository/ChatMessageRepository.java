@@ -69,6 +69,8 @@ public interface ChatMessageRepository extends MongoRepository<ChatMessage, Stri
             @Param("userId") String userId
     );
 
+
+
     // 새로운 쿼리: joinedAt 이후의 메시지만 조회하고 exitMessage가 true인 시스템 메시지 제외
     @Query(
             value = "{ 'roomId': ?0, 'readBy': { $nin: [?1] }, 'senderId': { $ne: ?1 }, " +
@@ -86,5 +88,13 @@ public interface ChatMessageRepository extends MongoRepository<ChatMessage, Stri
             @Param("roomId") Long roomId,
             @Param("userId") String userId,
             @Param("joinedAt") Date joinedAt
+    );
+
+    @Query(
+            value = "{ 'roomId': ?0, 'readBy': { $nin: [?1] }, 'senderId': { $ne: ?1 }, 'deleted': false, 'senderName': { $ne: '시스템' } }"
+    )
+    List<ChatMessage> findUnreadMessagesByRoomIdAndUserId(
+            @Param("roomId") Long roomId,
+            @Param("userId") String userId
     );
 }

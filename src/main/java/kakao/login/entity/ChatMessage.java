@@ -29,8 +29,9 @@ public class ChatMessage {
     private String profileImageBase64; // Base64 encoded profile image
     private boolean exitMessage = false; // 퇴장 메시지 여부
     private boolean inviteMessage = false; // 초대 메시지 여부
+    private boolean dateMessage; //날짜 메시지 여부
     private boolean deleted = false; //메시지 삭제 여부
-
+    private String status; // "uploading", "done" 등
     // ↓ 추가된 필드 ↓
     /** 첨부 타입: "image" 또는 "file" */
     private String attachmentType;

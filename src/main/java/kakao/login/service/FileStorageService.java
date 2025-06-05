@@ -50,7 +50,8 @@ public class FileStorageService {
         } catch (IOException e) {
             throw new RuntimeException("파일 저장 실패", e);
         }
-        // 예를 들어, "http://서버주소/uploads/uuid_파일명.ext" 혹은 "/uploads/uuid_파일명.ext"
+
+        // URL 경로 통일
         return "/uploads/" + filename;
     }
 

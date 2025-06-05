@@ -98,27 +98,6 @@ public class ChatRoomService {
         return chatRoomRepository.save(chatRoom);
     }
 
-    public Optional<ChatRoom> getMainChatRoom() {
-        List<ChatRoom> mainRooms = chatRoomRepository.findByNameContaining("Main Room");
-        if (!mainRooms.isEmpty()) {
-            return Optional.of(mainRooms.get(0));
-        } else {
-            ChatRoom mainRoom = createChatRoom("Main Room", "system", true);
-            return Optional.of(mainRoom);
-        }
-    }
-
-    @Transactional
-    public ChatRoom joinMainChatRoom(EmployeeEntity employee) {
-        ChatRoom mainRoom = getMainChatRoom().orElseThrow(() -> new RuntimeException("Main chat room creation failed"));
-        if (!mainRoom.hasActiveParticipant(employee.getUser().getUserId())) {
-            mainRoom.addParticipant(employee, false);
-            mainRoom.updateLastActivity();
-            mainRoom = chatRoomRepository.save(mainRoom);
-        }
-        return mainRoom;
-    }
-
     @Transactional
     public ChatRoom createChatRoom(String name, String creatorId, boolean isGroupChat) {
         ChatRoom chatRoom = new ChatRoom(name, creatorId, isGroupChat);
