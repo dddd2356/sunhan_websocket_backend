@@ -23,6 +23,7 @@ public class ChatMessageRequestDto {
     private String attachmentType;
     private String attachmentUrl;
     private String attachmentName;
+    private String lastMessageContent;
     private List<String> readBy;
     private int unreadCount;
     private boolean deleted;

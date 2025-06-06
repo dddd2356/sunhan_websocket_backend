@@ -11,9 +11,12 @@ import org.springframework.stereotype.Repository;
 import java.time.LocalDateTime;
 import java.util.Date;
 import java.util.List;
+import java.util.Optional;
 
 @Repository
 public interface ChatMessageRepository extends MongoRepository<ChatMessage, String> {
+
+    Optional<ChatMessage> findTop1ByRoomIdOrderByTimestampDesc(Long roomId);
 
     /**
      * 특정 채팅방의 메시지를 페이지네이션하여 조회

@@ -7,6 +7,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import kakao.login.dto.request.message.BulkMessageRequestDto;
 import kakao.login.dto.request.message.ChatMessageRequestDto;
+import kakao.login.dto.request.message.ChatRoomListDto;
 import kakao.login.dto.request.message.MessageRequestDto;
 import kakao.login.dto.request.room.ChatRoomRequestDto;
 import kakao.login.entity.ChatMessage;
@@ -266,16 +267,14 @@ public class ChatController {
     }
 
     @GetMapping("/rooms/user/{userId}")
-    public ResponseEntity<List<ChatRoomRequestDto>> getUserChatRooms(
+    public ResponseEntity<List<ChatRoomListDto>> getUserChatRooms(
             @PathVariable String userId,
             @AuthenticationPrincipal String loginUserId) {
-        List<ChatRoom> rooms = chatRoomService.getUserChatRooms(userId);
-        List<ChatRoomRequestDto> dtos = rooms.stream()
-                .map(room -> chatRoomService.toDto(room, loginUserId))
-                .collect(Collectors.toList());
+
+        // ChatMessageService.getUserChatRoomsWithLastMessage를 호출하여 ChatRoomListDto 리스트 생성
+        List<ChatRoomListDto> dtos = chatService.getUserChatRoomsWithLastMessage(userId);
         return ResponseEntity.ok(dtos);
     }
-
 
     @GetMapping("/rooms/department")
     public ResponseEntity<List<ChatRoomRequestDto>> getChatRoomsByDepartment(

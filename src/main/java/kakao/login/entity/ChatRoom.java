@@ -37,6 +37,9 @@ public class ChatRoom {
     @Column(name = "is_group_chat")
     private boolean isGroupChat;
 
+    @Column(name = "last_message_content", length = 1000) // 메시지 길이에 따라 적절히 조절
+    private String lastMessageContent;
+
     @OneToMany(mappedBy = "chatRoom", cascade = CascadeType.ALL, orphanRemoval = true)
     @JsonManagedReference
     private Set<ChatRoomParticipant> chatRoomParticipants = new HashSet<>();

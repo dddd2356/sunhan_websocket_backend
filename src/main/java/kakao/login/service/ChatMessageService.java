@@ -1,6 +1,7 @@
 package kakao.login.service;
 
 import kakao.login.dto.request.message.ChatMessageRequestDto;
+import kakao.login.dto.request.message.ChatRoomListDto;
 import kakao.login.entity.*;
 import kakao.login.repository.*;
 import lombok.extern.slf4j.Slf4j;
@@ -117,6 +118,8 @@ public class ChatMessageService {
         ChatRoom chatRoom = new ChatRoom(name, creatorId, isGroupChat);
         chatRoomRepository.save(chatRoom);
         chatRoom.addParticipant(creator, false);
+        // 🔥 추가: 새로운 채팅방 생성 시 lastMessageContent를 초기화
+        chatRoom.setLastMessageContent("채팅방이 생성되었습니다.");
         return chatRoomRepository.save(chatRoom);
     }
 
@@ -203,9 +206,10 @@ public class ChatMessageService {
         message.getReadBy().add(message.getSenderId());
 
         ChatMessage saved = chatMessageRepository.save(message);
+        // 🔥 추가: ChatRoom의 lastMessageContent 업데이트
+        chatRoom.setLastMessageContent(message.getContent());
         chatRoom.updateLastActivity();
         chatRoomRepository.save(chatRoom);
-
         ChatMessageRequestDto dto = ChatMessageRequestDto.of(saved);
         messagingTemplate.convertAndSend("/topic/chat/" + saved.getRoomId(), dto);
         log.info("Broadcasted new message {} to /topic/chat/{}", saved.getId(), saved.getRoomId());
@@ -217,7 +221,9 @@ public class ChatMessageService {
                 .collect(Collectors.toMap(Function.identity(), uid -> getUnreadCount(saved.getRoomId(), uid)));
         messagingTemplate.convertAndSend(
                 "/topic/chat/" + saved.getRoomId() + "/unread-count",
-                Map.of("unreadCounts", unreadCounts)
+                Map.of("unreadCounts", unreadCounts,
+                "lastMessageContent", saved.getContent()
+            )
         );
 
         return saved;
@@ -274,13 +280,26 @@ public class ChatMessageService {
             inviteMessage.setInviteMessage(true);
             ChatMessage savedMessage = chatMessageRepository.save(inviteMessage);
 
+            // 🔥 초대 메시지도 lastMessageContent 업데이트 (필요에 따라)
+            chatRoom.setLastMessageContent(inviteMessage.getContent());
             chatRoom.updateLastActivity();
             chatRoomRepository.save(chatRoom);
             log.info("Invite event: 초대 메시지는 저장하지 않고 로그에만 남김 (roomId={}, senderId={})", roomId, senderId);
             // 브로드캐스트
             ChatMessageRequestDto dto = ChatMessageRequestDto.of(savedMessage);
             messagingTemplate.convertAndSend("/topic/chat/" + roomId, dto);
-
+            // 🔥 unread-count 브로드캐스트에 lastMessageContent 포함
+            ChatRoom room = chatRoomRepository.findById(roomId).orElseThrow();
+            Map<String, Long> unreadCounts = room.getActiveParticipants().stream()
+                    .map(p -> p.getUser().getUserId())
+                    .collect(Collectors.toMap(Function.identity(), uid -> getUnreadCount(roomId, uid)));
+            messagingTemplate.convertAndSend(
+                    "/topic/chat/" + roomId + "/unread-count",
+                    Map.of(
+                            "unreadCounts", unreadCounts,
+                            "lastMessageContent", inviteMessage.getContent() // 🔥 추가
+                    )
+            );
             return savedMessage;
         } else {
             ChatMessage message = new ChatMessage(roomId, sender, content);
@@ -293,12 +312,25 @@ public class ChatMessageService {
             message.getReadBy().add(senderId);
 
             ChatMessage savedMessage = chatMessageRepository.save(message);
+            // 🔥 추가: ChatRoom의 lastMessageContent 업데이트
+            chatRoom.setLastMessageContent(message.getContent());
             chatRoom.updateLastActivity();
             chatRoomRepository.save(chatRoom);
             // DTO 변환 후 브로드캐스트
             ChatMessageRequestDto dto = ChatMessageRequestDto.of(savedMessage);
             messagingTemplate.convertAndSend("/topic/chat/" + roomId, dto);
-
+            // 🔥 unread-count 브로드캐스트에 lastMessageContent 포함
+            ChatRoom room = chatRoomRepository.findById(roomId).orElseThrow();
+            Map<String, Long> unreadCounts = room.getActiveParticipants().stream()
+                    .map(p -> p.getUser().getUserId())
+                    .collect(Collectors.toMap(Function.identity(), uid -> getUnreadCount(roomId, uid)));
+            messagingTemplate.convertAndSend(
+                    "/topic/chat/" + roomId + "/unread-count",
+                    Map.of(
+                            "unreadCounts", unreadCounts,
+                            "lastMessageContent", message.getContent() // 🔥 추가
+                    )
+            );
             return savedMessage;
         }
     }
@@ -333,17 +365,34 @@ public class ChatMessageService {
             log.info("Message {} marked as read by user {}. New readBy: {}",
                     messageId, userId, savedMessage.getReadBy());
 
-            // --- 전체 참가자 대상으로 통합 브로드캐스트 ---
+            // 1) 현재 ChatRoom 조회
             ChatRoom room = chatRoomRepository.findById(savedMessage.getRoomId())
                     .orElseThrow();
+            // 2) 읽지 않은 메시지 개수를 모든 참가자 대상으로 계산
             Map<String, Long> unreadCounts = room.getActiveParticipants().stream()
                     .map(p -> p.getUser().getUserId())
-                    .collect(Collectors.toMap(Function.identity(), uid -> getUnreadCount(savedMessage.getRoomId(), uid)));
+                    .collect(Collectors.toMap(
+                            Function.identity(),
+                            uid -> getUnreadCount(savedMessage.getRoomId(), uid)
+                    ));
+
+            // 3) lastMessageContent 가져오기 (null-safe)
+            String lastMsg = room.getLastMessageContent() != null
+                    ? room.getLastMessageContent()
+                    : "";
+
+            // 4) '/topic/chat/{roomId}/unread-count' 브로드캐스트 (lastMessageContent 포함)
+            Map<String, Object> payload = new HashMap<>();
+            payload.put("userId", userId);
+            payload.put("unreadCounts", unreadCounts);
+            payload.put("lastMessageContent", lastMsg);
 
             messagingTemplate.convertAndSend(
                     "/topic/chat/" + savedMessage.getRoomId() + "/unread-count",
-                    Map.of("userId", userId, "unreadCounts", unreadCounts)
+                    payload
             );
+            log.info("Broadcasted unreadCounts for room {} after single message read: {} with lastMessageContent={}",
+                    savedMessage.getRoomId(), unreadCounts, lastMsg);
         } else {
             log.info("Message {} already read by user {} or is sender", messageId, userId);
         }
@@ -372,18 +421,12 @@ public class ChatMessageService {
             newRoom.setName("메인 채팅방");
             newRoom.setGroupChat(true);
             newRoom.setCreatedBy("admin");
+            // 🔥 추가: 메인 채팅방 생성 시 lastMessageContent 초기화
+            newRoom.setLastMessageContent("메인 채팅방이 생성되었습니다.");
             chatRoomRepository.save(newRoom);
             return Optional.of(newRoom);
         }
         return mainRoom;
-    }
-
-    public Page<ChatMessage> getMainChatHistory(Pageable pageable) {
-        Optional<ChatRoom> mainRoom = getMainChatRoom();
-        if (mainRoom.isPresent()) {
-            return chatMessageRepository.findByRoomId(mainRoom.get().getId(), pageable);
-        }
-        return Page.empty(pageable);
     }
 
     public ChatMessage createSystemMessage(Long roomId, String senderId, String content) {
@@ -412,7 +455,13 @@ public class ChatMessageService {
         ChatMessage saved = chatMessageRepository.save(message);
         ChatRoom chatRoom = chatRoomRepository.findById(message.getRoomId())
                 .orElseThrow(() -> new RuntimeException("Chat room not found"));
+        // 🔥 수정: 모든 메시지를 마지막 메시지로 업데이트 (시스템 메시지, 삭제된 메시지 포함)
+        chatRoom.setLastMessageContent(message.getContent());
         chatRoom.updateLastActivity();
+        // 🔥 saveMessageEntity는 일반적으로 메시지 자체를 저장하는 용도이므로,
+        // 이곳에서 lastMessageContent를 업데이트할 필요는 없지만,
+        // 만약 다른 곳에서 이 메서드를 호출하여 마지막 메시지가 될 수 있는 경우라면 고려할 수 있습니다.
+        // 현재 로직상 sendMessage/sendDirectMessage에서 처리하므로 여기서의 추가 변경은 생략합니다.
         chatRoomRepository.save(chatRoom);
         return saved;
     }
@@ -458,6 +507,7 @@ public class ChatMessageService {
                 dto
         );
         System.out.println("브로드캐스트 완료: roomId=" + updated.getRoomId());
+
     }
 
     @Transactional
@@ -555,30 +605,117 @@ public class ChatMessageService {
 
     @Transactional
     public List<ChatMessage> markAllMessagesAsRead(Long roomId, String userId) {
-        List<ChatMessage> unreadMessages = chatMessageRepository.findUnreadMessagesByRoomIdAndUserId(roomId, userId);
+        // ① userId가 null인지 검증 (컨트롤러에서 이미 검증해 주었지만, 이곳에서도 안전장치를 두어도 좋습니다)
+        if (userId == null) {
+            log.warn("markAllMessagesAsRead 호출 시 userId가 null입니다. roomId={}", roomId);
+            return Collections.emptyList();
+        }
+
+        // ② roomId와 userId에 해당하는 “읽지 않은 메시지” 목록을 가져옴
+        List<ChatMessage> unreadMessages =
+                chatMessageRepository.findUnreadMessagesByRoomIdAndUserId(roomId, userId);
+
+        // ③ 각각 readBy에 userId를 추가하고 저장
         for (ChatMessage message : unreadMessages) {
             if (!message.getReadBy().contains(userId)) {
                 message.getReadBy().add(userId);
                 ChatMessage savedMessage = chatMessageRepository.save(message);
-                // 메시지별 읽음 상태 브로드캐스트
-                ChatMessageRequestDto dto = ChatMessageRequestDto.of(savedMessage);
-                messagingTemplate.convertAndSend("/topic/chat/" + roomId + "/read", Map.of(
-                        "messageId", savedMessage.getId(),
-                        "userId", userId
-                ));
-                log.info("Broadcasted read status for message {} by user {} to /topic/chat/{}/read", savedMessage.getId(), userId, roomId);
+
+                // 메시지별 읽음 상태 브로드캐스트 (optional)
+                messagingTemplate.convertAndSend(
+                        "/topic/chat/" + roomId + "/read",
+                        Map.of(
+                                "messageId", savedMessage.getId(),
+                                "userId", userId
+                        )
+                );
+                log.info("Broadcasted read status for message {} by user {} to /topic/chat/{}/read",
+                        savedMessage.getId(), userId, roomId);
             }
         }
-        // 방 전체 unreadCount 브로드캐스트
-        long unreadCount = getUnreadCount(roomId, userId);
+
+        // ④ unreadCount를 계산한 뒤, 전체 참가자 대상 브로드캐스트
+        //    아래에서 payload를 만들기 위해 ChatRoom 엔티티를 다시 가져옴
+        ChatRoom chatRoom = chatRoomRepository.findById(roomId)
+                .orElseThrow(() -> new RuntimeException("Chat room not found: " + roomId));
+
+        // 'HashMap'을 사용해 null-safe하게 payload 구성
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("userId", userId);
+
+        // 전체 참가자 목록을 순회하며 각자의 unreadCount를 계산
+        Map<String, Long> unreadCounts = chatRoom.getActiveParticipants().stream()
+                .map(p -> p.getUser().getUserId())
+                .collect(Collectors.toMap(
+                        participantId -> participantId,
+                        participantId -> getUnreadCount(roomId, participantId)
+                ));
+
+        payload.put("unreadCounts", unreadCounts);
+
+        // ★ lastMessageContent가 null일 수 있으므로, null 대신 빈 문자열로 대체
+        String lastMsg = chatRoom.getLastMessageContent();
+        if (lastMsg == null) {
+            lastMsg = "";
+        }
+        payload.put("lastMessageContent", lastMsg);
+
+        // ⑤ '/topic/chat/{roomId}/unread-count'으로 브로드캐스트
         messagingTemplate.convertAndSend(
                 "/topic/chat/" + roomId + "/unread-count",
-                Map.of("unreadCount", unreadCount, "userId", userId)
+                payload
         );
-        log.info("Broadcasted unreadCount={} for room {} and user {} to /topic/chat/{}/unread-count", unreadCount, roomId, userId, roomId);
+        log.info("Broadcasted unreadCount={} for room {} and user {} to /topic/chat/{}/unread-count",
+                unreadCounts, roomId, userId, roomId);
+
         return unreadMessages;
     }
 
+    /**
+     * 사용자의 채팅방 목록을 마지막 메시지와 읽지 않은 메시지 수와 함께 조회
+     */
+    public List<ChatRoomListDto> getUserChatRoomsWithLastMessage(String userId) {
+        List<ChatRoom> chatRooms = chatRoomRepository.findByParticipantUserId(userId);
 
+        return chatRooms.stream()
+                .filter(room -> room.hasActiveParticipant(userId)) // 활성 참가자만 필터링
+                .map(room -> {
+                    // 1) 이 방의 마지막 메시지를 직접 조회
+                    Optional<ChatMessage> lastMsgOpt =
+                            chatMessageRepository.findTop1ByRoomIdOrderByTimestampDesc(room.getId());
+
+                    // 2) 표시할 문자열 결정 (attachmentType 확인)
+                    String displayLastMessage;
+                    if (lastMsgOpt.isPresent()) {
+                        ChatMessage lastMsg = lastMsgOpt.get();
+                        String atype = lastMsg.getAttachmentType();
+                        if ("image".equalsIgnoreCase(atype)) {
+                            displayLastMessage = "📷 사진";
+                        } else if ("file".equalsIgnoreCase(atype)) {
+                            displayLastMessage = "📄 파일";
+                        } else {
+                            String content = lastMsg.getContent();
+                            displayLastMessage = (content != null && !content.isBlank())
+                                    ? content
+                                    : "";
+                        }
+                    } else {
+                        // 메시지가 없는 방
+                        displayLastMessage = "";
+                    }
+
+                    // 3) 이 방의 unreadCount 계산
+                    long unreadCount = getUnreadCount(room.getId(), userId);
+
+                    // 4) DTO 생성: 기존 ChatRoomListDto.of(...)를 사용한 뒤
+                    ChatRoomListDto dto = ChatRoomListDto.of(room, userId, unreadCount);
+                    //    lastMessageContent 대신 우리가 만든 displayLastMessage로 덮어쓰기
+                    dto.setLastMessageContent(displayLastMessage);
+
+                    return dto;
+                })
+                .sorted((a, b) -> b.getLastActivity().compareTo(a.getLastActivity())) // 최근 활동 순 정렬
+                .collect(Collectors.toList());
+    }
 
 }
