@@ -13,6 +13,7 @@ import kakao.login.dto.request.room.ChatRoomRequestDto;
 import kakao.login.entity.ChatMessage;
 import kakao.login.entity.ChatRoom;
 import kakao.login.entity.EmployeeEntity;
+import kakao.login.repository.ChatRoomRepository;
 import kakao.login.repository.EmployeeRepository;
 import kakao.login.service.ChatMessageService;
 import kakao.login.service.ChatRoomService;
@@ -41,8 +42,11 @@ import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.io.IOException;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 
@@ -59,6 +63,7 @@ public class ChatController {
     private final EmployeeRepository employeeRepository;
 
     private final FileStorageService fileStorageService;
+    private final ChatRoomRepository chatRoomRepository;
 
     @Autowired
     public ChatController(ChatMessageService chatMessageService,
@@ -66,13 +71,15 @@ public class ChatController {
                           SimpMessagingTemplate messagingTemplate,
                           ChatRoomService chatRoomService,
                           EmployeeRepository employeeRepository,
-                          FileStorageService fileStorageService) {
+                          FileStorageService fileStorageService,
+                          ChatRoomRepository chatRoomRepository ) {
         this.chatService = chatMessageService;
         this.employeeService = employeeService;
         this.messagingTemplate = messagingTemplate;
         this.chatRoomService = chatRoomService;
         this.employeeRepository = employeeRepository;
         this.fileStorageService = fileStorageService;
+        this.chatRoomRepository = chatRoomRepository;
     }
 
     @Operation(
@@ -197,27 +204,30 @@ public class ChatController {
             @PathVariable String roomId,
             @RequestParam String messageId,
             @RequestParam String userId) {
+
         chatService.markMessagesAsRead(messageId, userId);
-        // 방의 모든 참가자에 대해 unreadCount 갱신
         ChatRoom room = chatRoomService.getChatRoom(Long.valueOf(roomId))
                 .orElseThrow(() -> new RuntimeException("Chat room not found: " + roomId));
-        Map<String, Long> unreadCounts = new HashMap<>();
-        for (String participantId : room.getActiveParticipants().stream()
+
+        Map<String, Long> unreadCounts = room.getActiveParticipants().stream()
                 .map(p -> p.getUser().getUserId())
-                .collect(Collectors.toList())) {
-            long unreadCount = chatService.getUnreadCount(Long.valueOf(roomId), participantId);
-            unreadCounts.put(participantId, unreadCount);
-        }
+                .collect(Collectors.toMap(Function.identity(),
+                        uid -> chatService.getUnreadCount(Long.valueOf(roomId), uid)));
+
+        String lastMsgContent = Optional.ofNullable(room.getLastMessageContent()).orElse("");
+
+        Map<String,Object> payload = new HashMap<>();
+        payload.put("userId", userId);
+        payload.put("unreadCounts", unreadCounts);
+        payload.put("lastMessageContent", lastMsgContent);
+
         messagingTemplate.convertAndSend(
                 "/topic/chat/" + roomId + "/unread-count",
-                Map.of(
-                        "userId", userId,
-                        "unreadCounts", unreadCounts
-                )
+                payload
         );
-        log.info("Broadcasted unreadCounts for room {} after single message read: {}", roomId, unreadCounts);
         return ResponseEntity.ok().build();
     }
+
 
 
     @PostMapping("/direct")
@@ -309,6 +319,8 @@ public class ChatController {
 
         ChatRoom chatRoom = chatService.getChatRoomById(roomId)
                 .orElseThrow(() -> new RuntimeException("Chat room not found"));
+
+        // 메시지 저장
         ChatMessage savedMessage;
         if (!chatRoom.isGroupChat()) {
             savedMessage = chatService.sendDirectMessage(roomId, senderId, content, false);
@@ -316,8 +328,31 @@ public class ChatController {
             ChatMessage chatMessage = chatService.createMessageFromRequest(roomId, senderId, content);
             savedMessage = chatService.sendMessage(chatMessage);
         }
+
+        // 채팅방의 lastMessageContent 업데이트
+        chatRoom.setLastMessageContent(content);
+        chatRoom.setLastActivity(LocalDateTime.now());
+        chatRoomRepository.save(chatRoom);
+
+        // 메시지 브로드캐스트
         ChatMessageRequestDto dto = ChatMessageRequestDto.of(savedMessage);
         messagingTemplate.convertAndSend("/topic/chat/" + roomId, dto);
+
+        // unread-count 브로드캐스트 (lastMessageContent 포함)
+        Map<String, Long> unreadCounts = chatRoom.getActiveParticipants().stream()
+                .map(p -> p.getUser().getUserId())
+                .collect(Collectors.toMap(
+                        Function.identity(),
+                        uid -> chatService.getUnreadCount(roomId, uid)
+                ));
+
+        messagingTemplate.convertAndSend(
+                "/topic/chat/" + roomId + "/unread-count",
+                Map.of(
+                        "unreadCounts", unreadCounts,
+                        "lastMessageContent", content
+                )
+        );
     }
 
     @PostMapping("/direct/message")
@@ -396,8 +431,9 @@ public class ChatController {
     public ResponseEntity<ChatMessageRequestDto> uploadAttachment(
             @PathVariable Long roomId,
             @RequestParam("file") MultipartFile file,
-            HttpServletRequest request) {
+            HttpServletRequest request) throws InterruptedException {
 
+        // --- 1) 사용자 정보 조회 ---
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         String senderId = auth.getName();
         EmployeeEntity sender = employeeRepository.findByUser_UserId(senderId);
@@ -405,8 +441,10 @@ public class ChatController {
             throw new RuntimeException("Sender not found with userId: " + senderId);
         }
 
+        // --- 2) 날짜 구분 메시지 삽입 ---
         chatService.insertDateSeparatorIfNeeded(roomId);
 
+        // --- 3) 채팅방·참가자 로드 ---
         ChatRoom room = chatRoomService.getChatRoom(roomId)
                 .orElseThrow(() -> new RuntimeException("Chat room not found: " + roomId));
         Hibernate.initialize(room.getChatRoomParticipants());
@@ -414,50 +452,34 @@ public class ChatController {
                 .filter(p -> !p.getUser().getUserId().equals(senderId))
                 .count();
 
-        String contentType = file.getContentType();
-        boolean isImage = contentType != null && contentType.startsWith("image/");
-        ChatMessage uploadingMsg = new ChatMessage();
-        uploadingMsg.setRoomId(roomId);
-        uploadingMsg.setSenderId(senderId);
-        uploadingMsg.setSenderName(sender.getName());
-        uploadingMsg.setTimestamp(LocalDateTime.now());
-        uploadingMsg.setType(ChatMessage.MessageType.CHAT);
-        uploadingMsg.setContent("");
-        uploadingMsg.setAttachmentType(isImage ? "image" : "file");
-        uploadingMsg.setAttachmentName(file.getOriginalFilename());
-        uploadingMsg.setStatus("uploading");
-        uploadingMsg.setParticipantCountAtSend(activeCount);
-        uploadingMsg.setReadBy(new ArrayList<>(List.of(senderId)));
-        ChatMessageRequestDto uploadingDto = ChatMessageRequestDto.of(uploadingMsg);
-        messagingTemplate.convertAndSend("/topic/chat/" + roomId, uploadingDto);
-
+        // --- 4) 파일 저장 & 절대 URL 생성 ---
         String relativePath = fileStorageService.store(file);
         String baseUrl = request.getScheme() + "://" + request.getServerName() + ":" + request.getServerPort();
         String absoluteUrl = baseUrl + relativePath;
+        boolean isImage = Optional.ofNullable(file.getContentType())
+                .map(ct -> ct.startsWith("image/"))
+                .orElse(false);
 
-        boolean fileReady = false;
+        // --- 5) URL HEAD 체크 (최대 5초) ---
+        boolean ready = false;
         for (int i = 0; i < 10; i++) {
             try {
-                java.net.URL url = new java.net.URL(absoluteUrl);
-                java.net.HttpURLConnection conn = (java.net.HttpURLConnection) url.openConnection();
+                HttpURLConnection conn = (HttpURLConnection) new URL(absoluteUrl).openConnection();
                 conn.setRequestMethod("HEAD");
                 conn.setConnectTimeout(500);
                 conn.setReadTimeout(500);
-                int responseCode = conn.getResponseCode();
-                if (responseCode == 200) {
-                    fileReady = true;
+                if (conn.getResponseCode() == 200) {
+                    ready = true;
                     break;
                 }
-            } catch (Exception e) {
-                log.warn("파일 접근 시도 실패 (시도 {}/10): {}", i + 1, e.getMessage());
-            }
-            try { Thread.sleep(500); } catch (InterruptedException ignored) {}
+            } catch (Exception ignored) {}
+            Thread.sleep(500);
         }
-        if (!fileReady) {
-            log.error("파일이 5초 내에 접근 불가: {}", absoluteUrl);
+        if (!ready) {
             throw new RuntimeException("파일 업로드 후 접근 실패: " + absoluteUrl);
         }
 
+        // --- 6) 메시지 엔티티 생성 & 저장 ---
         ChatMessage msg = new ChatMessage();
         msg.setRoomId(roomId);
         msg.setSenderId(senderId);
@@ -470,13 +492,33 @@ public class ChatController {
         msg.setAttachmentName(file.getOriginalFilename());
         msg.setParticipantCountAtSend(activeCount);
         msg.setReadBy(new ArrayList<>(List.of(senderId)));
-        msg.setStatus(null);
 
         ChatMessage saved = chatService.saveMessageEntity(msg);
 
+        // --- 7) WebSocket: 새 메시지 브로드캐스트 ---
         ChatMessageRequestDto dto = ChatMessageRequestDto.of(saved);
-        log.info("브로드캐스트 메시지: {}", dto); // 디버깅 로그 강화
         messagingTemplate.convertAndSend("/topic/chat/" + roomId, dto);
+
+        // --- 8) 최신 ChatRoom 다시 조회 & lastMessageContent 획득 ---
+        ChatRoom updatedRoom = chatRoomService.getChatRoom(roomId)
+                .orElseThrow(() -> new RuntimeException("Chat room not found: " + roomId));
+        String lastMsgContent = updatedRoom.getLastMessageContent();
+
+        // --- 9) WebSocket: unread-count 브로드캐스트 (lastMessageContent 포함) ---
+        Map<String, Long> unreadCounts = updatedRoom.getActiveParticipants().stream()
+                .map(p -> p.getUser().getUserId())
+                .collect(Collectors.toMap(
+                        Function.identity(),
+                        uid -> chatService.getUnreadCount(roomId, uid)
+                ));
+
+        messagingTemplate.convertAndSend(
+                "/topic/chat/" + roomId + "/unread-count",
+                Map.of(
+                        "unreadCounts",       unreadCounts,
+                        "lastMessageContent", lastMsgContent
+                )
+        );
 
         return ResponseEntity.ok(dto);
     }
@@ -643,8 +685,6 @@ public class ChatController {
         ));
     }
 
-
-
     /**
      * 3) 특정 개인에게 메시지 보내기 (직원 아이디로)
      */
@@ -683,30 +723,28 @@ public class ChatController {
     public ResponseEntity<Void> markRoomAsRead(
             @PathVariable Long roomId,
             @RequestBody Map<String, String> body) {
-        String userId = body.get("userId");
-        List<ChatMessage> updatedMessages = chatService.markAllMessagesAsRead(roomId, userId);
 
-        // 방의 모든 참가자에 대해 unreadCount 갱신
+        String userId = body.get("userId");
+        chatService.markAllMessagesAsRead(roomId, userId);
         ChatRoom room = chatRoomService.getChatRoom(roomId)
                 .orElseThrow(() -> new RuntimeException("Chat room not found: " + roomId));
-        Map<String, Long> unreadCounts = new HashMap<>();
-        for (String participantId : room.getActiveParticipants().stream()
-                .map(p -> p.getUser().getUserId())
-                .collect(Collectors.toList())) {
-            long unreadCount = chatService.getUnreadCount(roomId, participantId);
-            unreadCounts.put(participantId, unreadCount);
-        }
 
-        // 단일 브로드캐스트로 모든 참가자의 unreadCount 전송
+        Map<String, Long> unreadCounts = room.getActiveParticipants().stream()
+                .map(p -> p.getUser().getUserId())
+                .collect(Collectors.toMap(Function.identity(),
+                        uid -> chatService.getUnreadCount(roomId, uid)));
+
+        String lastMsgContent = Optional.ofNullable(room.getLastMessageContent()).orElse("");
+
+        Map<String,Object> payload = new HashMap<>();
+        payload.put("userId", userId);
+        payload.put("unreadCounts", unreadCounts);
+        payload.put("lastMessageContent", lastMsgContent);
+
         messagingTemplate.convertAndSend(
                 "/topic/chat/" + roomId + "/unread-count",
-                Map.of(
-                        "userId", userId,
-                        "unreadCounts", unreadCounts
-                )
+                payload
         );
-        log.info("Broadcasted unreadCounts for room {}: {}", roomId, unreadCounts);
-
         return ResponseEntity.ok().build();
     }
 

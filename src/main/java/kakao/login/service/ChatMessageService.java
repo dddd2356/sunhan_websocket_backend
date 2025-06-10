@@ -185,49 +185,62 @@ public class ChatMessageService {
         int activeParticipantsCount = (int) chatRoom.getActiveParticipants().stream()
                 .filter(p -> !p.getUser().getUserId().equals(message.getSenderId()))
                 .count();
-        // 자신을 제외한 참가자 수를 unread로 설정
         message.setParticipantCountAtSend(activeParticipantsCount);
 
         EmployeeEntity sender = employeeRepository.findByUser_UserId(message.getSenderId());
         if (sender == null) {
             throw new RuntimeException("Sender not found with userId: " + message.getSenderId());
         }
-
         if (!chatRoom.hasActiveParticipant(message.getSenderId())) {
             log.info("발신자 {}는 채팅방 {}의 참가자가 아니므로 추가합니다.", message.getSenderId(), message.getRoomId());
-            chatRoom.addParticipant(sender, true); // 메시지 전송 시 재입장 허용
+            chatRoom.addParticipant(sender, true);
         }
 
-        // 빈 readBy 리스트 초기화
         if (message.getReadBy() == null) {
             message.setReadBy(new ArrayList<>());
         }
-        // 발신자는 이미 읽은 것으로 처리
         message.getReadBy().add(message.getSenderId());
 
         ChatMessage saved = chatMessageRepository.save(message);
-        // 🔥 추가: ChatRoom의 lastMessageContent 업데이트
-        chatRoom.setLastMessageContent(message.getContent());
+
+        // 🔥 수정: attachmentType에 따라 이모지+문구로 lastMessageContent 설정
+        String attachmentType = message.getAttachmentType();
+        String lastMsgContent;
+        if ("image".equalsIgnoreCase(attachmentType)) {
+            lastMsgContent = "📷 사진";
+        } else if ("file".equalsIgnoreCase(attachmentType)) {
+            lastMsgContent = "📄 파일";
+        } else {
+            lastMsgContent = message.getContent();
+        }
+        chatRoom.setLastMessageContent(lastMsgContent);
+
         chatRoom.updateLastActivity();
         chatRoomRepository.save(chatRoom);
+
         ChatMessageRequestDto dto = ChatMessageRequestDto.of(saved);
         messagingTemplate.convertAndSend("/topic/chat/" + saved.getRoomId(), dto);
         log.info("Broadcasted new message {} to /topic/chat/{}", saved.getId(), saved.getRoomId());
 
-        // --- unread-count 브로드캐스트 추가 ---
+        // --- unread-count 브로드캐스트 (lastMessageContent에도 동일한 값 사용) ---
         ChatRoom room = chatRoomRepository.findById(saved.getRoomId()).orElseThrow();
         Map<String, Long> unreadCounts = room.getActiveParticipants().stream()
                 .map(p -> p.getUser().getUserId())
-                .collect(Collectors.toMap(Function.identity(), uid -> getUnreadCount(saved.getRoomId(), uid)));
+                .collect(Collectors.toMap(
+                        Function.identity(),
+                        uid -> getUnreadCount(saved.getRoomId(), uid)
+                ));
         messagingTemplate.convertAndSend(
                 "/topic/chat/" + saved.getRoomId() + "/unread-count",
-                Map.of("unreadCounts", unreadCounts,
-                "lastMessageContent", saved.getContent()
-            )
+                Map.of(
+                        "unreadCounts", unreadCounts,
+                        "lastMessageContent", lastMsgContent
+                )
         );
 
         return saved;
     }
+
 
     @Transactional
     public ChatMessage sendDirectMessage(Long roomId, String senderId, String content, boolean invite) {
@@ -452,17 +465,29 @@ public class ChatMessageService {
      */
     @Transactional
     public ChatMessage saveMessageEntity(ChatMessage message) {
+        // 1) 메시지 저장
         ChatMessage saved = chatMessageRepository.save(message);
+
+        // 2) 채팅방 로드
         ChatRoom chatRoom = chatRoomRepository.findById(message.getRoomId())
                 .orElseThrow(() -> new RuntimeException("Chat room not found"));
-        // 🔥 수정: 모든 메시지를 마지막 메시지로 업데이트 (시스템 메시지, 삭제된 메시지 포함)
-        chatRoom.setLastMessageContent(message.getContent());
+
+        // 3) attachmentType에 따라 lastMessageContent 결정
+        String atype = message.getAttachmentType();
+        String lastMsg;
+        if ("image".equalsIgnoreCase(atype)) {
+            lastMsg = "📷 사진";
+        } else if ("file".equalsIgnoreCase(atype)) {
+            lastMsg = "📄 파일";
+        } else {
+            lastMsg = message.getContent();
+        }
+
+        // 4) 채팅방에 반영
+        chatRoom.setLastMessageContent(lastMsg);
         chatRoom.updateLastActivity();
-        // 🔥 saveMessageEntity는 일반적으로 메시지 자체를 저장하는 용도이므로,
-        // 이곳에서 lastMessageContent를 업데이트할 필요는 없지만,
-        // 만약 다른 곳에서 이 메서드를 호출하여 마지막 메시지가 될 수 있는 경우라면 고려할 수 있습니다.
-        // 현재 로직상 sendMessage/sendDirectMessage에서 처리하므로 여기서의 추가 변경은 생략합니다.
         chatRoomRepository.save(chatRoom);
+
         return saved;
     }
 
@@ -678,43 +703,35 @@ public class ChatMessageService {
         List<ChatRoom> chatRooms = chatRoomRepository.findByParticipantUserId(userId);
 
         return chatRooms.stream()
-                .filter(room -> room.hasActiveParticipant(userId)) // 활성 참가자만 필터링
+                .filter(room -> room.hasActiveParticipant(userId))
                 .map(room -> {
-                    // 1) 이 방의 마지막 메시지를 직접 조회
-                    Optional<ChatMessage> lastMsgOpt =
-                            chatMessageRepository.findTop1ByRoomIdOrderByTimestampDesc(room.getId());
+                    // DB에 저장된 lastMessageContent 사용
+                    String lastMessageContent = room.getLastMessageContent();
 
-                    // 2) 표시할 문자열 결정 (attachmentType 확인)
-                    String displayLastMessage;
-                    if (lastMsgOpt.isPresent()) {
-                        ChatMessage lastMsg = lastMsgOpt.get();
-                        String atype = lastMsg.getAttachmentType();
-                        if ("image".equalsIgnoreCase(atype)) {
-                            displayLastMessage = "📷 사진";
-                        } else if ("file".equalsIgnoreCase(atype)) {
-                            displayLastMessage = "📄 파일";
-                        } else {
-                            String content = lastMsg.getContent();
-                            displayLastMessage = (content != null && !content.isBlank())
-                                    ? content
-                                    : "";
+                    // lastMessageContent가 null이거나 비어있는 경우에만 마지막 메시지 조회
+                    if (lastMessageContent == null || lastMessageContent.trim().isEmpty()) {
+                        Optional<ChatMessage> lastMsgOpt =
+                                chatMessageRepository.findTop1ByRoomIdOrderByTimestampDesc(room.getId());
+
+                        if (lastMsgOpt.isPresent()) {
+                            ChatMessage lastMsg = lastMsgOpt.get();
+                            String atype = lastMsg.getAttachmentType();
+                            if ("image".equalsIgnoreCase(atype)) {
+                                lastMessageContent = "📷 사진";
+                            } else if ("file".equalsIgnoreCase(atype)) {
+                                lastMessageContent = "📄 파일";
+                            } else {
+                                lastMessageContent = lastMsg.getContent();
+                            }
                         }
-                    } else {
-                        // 메시지가 없는 방
-                        displayLastMessage = "";
                     }
 
-                    // 3) 이 방의 unreadCount 계산
                     long unreadCount = getUnreadCount(room.getId(), userId);
-
-                    // 4) DTO 생성: 기존 ChatRoomListDto.of(...)를 사용한 뒤
                     ChatRoomListDto dto = ChatRoomListDto.of(room, userId, unreadCount);
-                    //    lastMessageContent 대신 우리가 만든 displayLastMessage로 덮어쓰기
-                    dto.setLastMessageContent(displayLastMessage);
-
+                    dto.setLastMessageContent(lastMessageContent);
                     return dto;
                 })
-                .sorted((a, b) -> b.getLastActivity().compareTo(a.getLastActivity())) // 최근 활동 순 정렬
+                .sorted((a, b) -> b.getLastActivity().compareTo(a.getLastActivity()))
                 .collect(Collectors.toList());
     }
 
