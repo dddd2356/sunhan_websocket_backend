@@ -377,4 +377,11 @@ public class EmployeeService {
                 .orElseThrow(() -> new RuntimeException("해당 직원이 존재하지 않습니다."));
     }
 
+    @Transactional
+    public byte[] getProfileImage(Long employeeId) {
+        return employeeRepository.findById(employeeId)
+                .map(EmployeeEntity::getProfileImage)
+                .orElse(null);
+    }
+
 }

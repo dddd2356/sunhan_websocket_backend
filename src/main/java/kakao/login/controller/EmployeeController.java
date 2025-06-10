@@ -105,10 +105,6 @@ public class EmployeeController {
         return ResponseEntity.ok(employeeDTOs);
     }
 
-
-
-
-
     //조직도 수정에서 카드 직원 클릭하면 수정, 삭제 하는 기능
     // ✏ 직원 수정 API
     @PreAuthorize("hasRole('ADMIN')")
