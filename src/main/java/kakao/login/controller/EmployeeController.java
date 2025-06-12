@@ -10,11 +10,14 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @RestController
@@ -170,6 +173,68 @@ public class EmployeeController {
             }
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("카카오 UUID 업데이트 오류");
+        }
+    }
+
+    @PutMapping("/profile/update")
+    public ResponseEntity<String> updateUserProfile(
+            Authentication authentication,
+            @RequestParam(required = false) String name,
+            @RequestParam(required = false) String phone,
+            @RequestParam(required = false) String password,
+            @RequestParam(required = false) MultipartFile profileImage) {
+
+        try {
+            String userId = authentication.getName();
+
+            // 현재 로그인한 사용자의 직원 정보 조회
+            EmployeeEntity employee = employeeService.getEmployeeByUserId(userId);
+            if (employee == null) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND).body("직원 정보를 찾을 수 없습니다.");
+            }
+
+            // 부분 수정 수행 (null이 아니고 공백이 아닌 필드만 업데이트)
+            boolean updated = employeeService.updateEmployeeProfile(
+                    employee.getId(), name, phone, password, profileImage);
+
+            if (updated) {
+                return ResponseEntity.ok("프로필이 성공적으로 수정되었습니다.");
+            } else {
+                return ResponseEntity.ok("변경할 내용이 없습니다.");
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("파일 업로드 오류: " + e.getMessage());
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("프로필 수정 중 오류가 발생했습니다: " + e.getMessage());
+        }
+    }
+
+    // 현재 사용자의 상세 프로필 정보 조회 API (프론트엔드에서 초기값 로딩용)
+    @GetMapping("/profile/me")
+    public ResponseEntity<Map<String, Object>> getCurrentUserProfile(Authentication authentication) {
+        try {
+            String userId = authentication.getName();
+            EmployeeEntity employee = employeeService.getEmployeeByUserId(userId);
+
+            if (employee == null) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND).body(null);
+            }
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("id", employee.getId());
+            response.put("name", employee.getName());
+            response.put("phone", employee.getPhone());
+            response.put("department", employee.getDepartment() != null ? employee.getDepartment().getDepartmentName() : null);
+            response.put("section", employee.getSection() != null ? employee.getSection().getSectionName() : null);
+            response.put("position", employee.getPosition());
+            response.put("profileImage", employee.getProfileImageBase64());
+
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(null);
         }
     }
 

@@ -215,11 +215,13 @@ public class ChatController {
                         uid -> chatService.getUnreadCount(Long.valueOf(roomId), uid)));
 
         String lastMsgContent = Optional.ofNullable(room.getLastMessageContent()).orElse("");
+        LocalDateTime lastActivity = room.getLastActivity();
 
         Map<String,Object> payload = new HashMap<>();
         payload.put("userId", userId);
         payload.put("unreadCounts", unreadCounts);
         payload.put("lastMessageContent", lastMsgContent);
+        payload.put("lastActivity", lastActivity);
 
         messagingTemplate.convertAndSend(
                 "/topic/chat/" + roomId + "/unread-count",
@@ -329,9 +331,11 @@ public class ChatController {
             savedMessage = chatService.sendMessage(chatMessage);
         }
 
+        LocalDateTime lastActivity = LocalDateTime.now();
+
         // 채팅방의 lastMessageContent 업데이트
         chatRoom.setLastMessageContent(content);
-        chatRoom.setLastActivity(LocalDateTime.now());
+        chatRoom.setLastActivity(lastActivity);
         chatRoomRepository.save(chatRoom);
 
         // 메시지 브로드캐스트
@@ -350,7 +354,8 @@ public class ChatController {
                 "/topic/chat/" + roomId + "/unread-count",
                 Map.of(
                         "unreadCounts", unreadCounts,
-                        "lastMessageContent", content
+                        "lastMessageContent", content,
+                        "lastActivity", lastActivity
                 )
         );
     }
@@ -503,6 +508,7 @@ public class ChatController {
         ChatRoom updatedRoom = chatRoomService.getChatRoom(roomId)
                 .orElseThrow(() -> new RuntimeException("Chat room not found: " + roomId));
         String lastMsgContent = updatedRoom.getLastMessageContent();
+        LocalDateTime lastActivity = updatedRoom.getLastActivity();
 
         // --- 9) WebSocket: unread-count 브로드캐스트 (lastMessageContent 포함) ---
         Map<String, Long> unreadCounts = updatedRoom.getActiveParticipants().stream()
@@ -516,7 +522,8 @@ public class ChatController {
                 "/topic/chat/" + roomId + "/unread-count",
                 Map.of(
                         "unreadCounts",       unreadCounts,
-                        "lastMessageContent", lastMsgContent
+                        "lastMessageContent", lastMsgContent,
+                        "lastActivity", lastActivity
                 )
         );
 
@@ -735,11 +742,13 @@ public class ChatController {
                         uid -> chatService.getUnreadCount(roomId, uid)));
 
         String lastMsgContent = Optional.ofNullable(room.getLastMessageContent()).orElse("");
+        LocalDateTime lastActivity = room.getLastActivity();
 
         Map<String,Object> payload = new HashMap<>();
         payload.put("userId", userId);
         payload.put("unreadCounts", unreadCounts);
         payload.put("lastMessageContent", lastMsgContent);
+        payload.put("lastActivity", lastActivity);
 
         messagingTemplate.convertAndSend(
                 "/topic/chat/" + roomId + "/unread-count",

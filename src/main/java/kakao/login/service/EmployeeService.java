@@ -14,6 +14,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
@@ -34,6 +35,7 @@ public class EmployeeService {
     private final DepartmentRepository departmentRepository;
     private final SectionRepository sectionRepository;
 
+    private PasswordEncoder passwordEncoder;
 
     @Autowired
     public EmployeeService(EmployeeRepository employeeRepository, UserRepository userRepository, DepartmentRepository departmentRepository, SectionRepository sectionRepository) {
@@ -382,6 +384,57 @@ public class EmployeeService {
         return employeeRepository.findById(employeeId)
                 .map(EmployeeEntity::getProfileImage)
                 .orElse(null);
+    }
+
+    public boolean updateEmployeeProfile(Long employeeId, String name, String phone, String password, MultipartFile profileImage) throws IOException {
+        Optional<EmployeeEntity> optionalEmployee = employeeRepository.findById(employeeId);
+        if (!optionalEmployee.isPresent()) {
+            return false;
+        }
+
+        EmployeeEntity employee = optionalEmployee.get();
+        boolean isUpdated = false;
+
+        // 1. 이름 업데이트 (null이 아니고 공백이 아닌 경우에만)
+        if (name != null && !name.trim().isEmpty()) {
+            employee.setName(name.trim());
+            isUpdated = true;
+        }
+
+        // 2. 전화번호 업데이트
+        if (phone != null && !phone.trim().isEmpty()) {
+            employee.setPhone(phone.trim());
+            isUpdated = true;
+        }
+
+        // 3. 프로필 이미지 업데이트
+        if (profileImage != null && !profileImage.isEmpty()) {
+            try {
+                byte[] imageBytes = profileImage.getBytes();
+                employee.setProfileImage(imageBytes);
+                isUpdated = true;
+            } catch (IOException e) {
+                throw new IOException("프로필 이미지 처리 중 오류가 발생했습니다.", e);
+            }
+        }
+
+        // 4. 비밀번호 업데이트 (UserEntity에서 처리)
+        if (password != null && !password.trim().isEmpty()) {
+            UserEntity user = employee.getUser();
+            if (user != null) {
+                user.setPassword(passwordEncoder.encode(password.trim()));
+                userRepository.save(user);  // UserEntity 별도 저장
+                isUpdated = true;
+            }
+        }
+
+        // 5. EmployeeEntity 저장 (변경사항이 있는 경우에만)
+        if (isUpdated) {
+            employeeRepository.save(employee);
+            return true;
+        }
+
+        return false;
     }
 
 }
