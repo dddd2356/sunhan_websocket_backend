@@ -40,7 +40,6 @@ public class EmployeeController {
             @RequestParam(required = false) String section,  // 섹션 파라미터를 선택사항으로 변경
             @RequestParam String position,
             @RequestParam(required = false) MultipartFile profileImage) {
-
         try {
             EmployeeEntity newEmployee = employeeService.registerEmployee(userId, name, phone, department, section, position, profileImage);
             return ResponseEntity.ok("직원 등록이 완료되었습니다.");

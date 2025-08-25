@@ -41,6 +41,4 @@ public class UserService {
             return "ROLE_USER"; // 기본 role 설정
         }
     }
-
-
 }

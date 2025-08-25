@@ -22,7 +22,6 @@ public class SignInResponseDto extends ResponseDto {
     }
 
     // 로그인 성공 응답
-// 수정된 메서드 (refreshToken을 필요로 하지 않는 경우)
     public static ResponseEntity<SignInResponseDto> success(String token, String refreshToken, long expiresIn) {
         SignInResponseDto responseBody = new SignInResponseDto(ResponseCode.SUCCESS, ResponseMessage.SUCCESS, token, refreshToken, expiresIn);
         return ResponseEntity.status(HttpStatus.OK).body(responseBody);

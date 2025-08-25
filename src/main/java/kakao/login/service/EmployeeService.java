@@ -65,6 +65,7 @@ public class EmployeeService {
             section = sectionRepository.findBySectionName(sectionName)
                     .orElseThrow(() -> new RuntimeException("Section not found"));
         }
+
         // 기존에 EmployeeEntity가 등록되어 있는지 확인 (필요시 findByUser_Id 사용)
         EmployeeEntity existingEmployee = employeeRepository.findByUser_UserId(userId);
         if (existingEmployee != null) {
@@ -347,11 +348,6 @@ public class EmployeeService {
     }
 
 
-    //    @Transactional
-//    public EmployeeEntity getEmployeeByUserId(String userId) {
-//        return employeeRepository.findEmployeeWithUser(userId)
-//                .orElseThrow(() -> new RuntimeException("해당 직원이 존재하지 않습니다."));
-//    }
     @Transactional
     public EmployeeEntity getEmployeeByUserId(String userId) {
         String normalizedUserId = userId;

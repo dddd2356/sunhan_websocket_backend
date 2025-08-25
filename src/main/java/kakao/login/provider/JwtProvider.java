@@ -191,28 +191,6 @@ public class JwtProvider {
         return true;
     }
 
-    public Optional<String> refreshAccessToken(String refreshToken) {
-        if (!verifyRefreshToken(refreshToken)) {
-            log.error("Refresh token verification failed");
-            return Optional.empty();
-        }
-
-        String userId = validateRefreshToken(refreshToken).orElse(null);
-        if (userId == null) {
-            log.error("No user ID found in refresh token");
-            return Optional.empty();
-        }
-
-        Optional<UserEntity> userOpt = userRepository.findById(userId);
-        if (userOpt.isEmpty()) {
-            log.error("User not found: {}", userId);
-            return Optional.empty();
-        }
-
-        String role = userOpt.get().getRole();
-        return Optional.of(create(userId, role));
-    }
-
     public void saveRefreshToken(UserEntity user, String refreshToken) {
         String tokenId = getTokenIdFromRefreshToken(refreshToken);
         if (tokenId == null) {
@@ -258,20 +236,10 @@ public class JwtProvider {
         }
     }
 
-    public void revokeAllUserTokens(String userId) {
-        Optional<UserEntity> userOpt = userRepository.findById(userId);
-        userOpt.ifPresent(user -> refreshTokenRepository.deleteByUser(user));
-    }
-
     public long getAccessTokenExpirationTime() {
         long expiresInSeconds = accessTokenExpiration / 1000;
         log.info("getAccessTokenExpirationTime: {} seconds", expiresInSeconds);
         return expiresInSeconds; // 3600초 반환
     }
-
-    public long getRefreshTokenExpirationTime() {
-        return refreshTokenExpiration / 1000; // Convert to seconds
-    }
-
 
 }

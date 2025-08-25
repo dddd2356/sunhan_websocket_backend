@@ -61,7 +61,6 @@ public class ChatController {
     private final SimpMessagingTemplate messagingTemplate;
     private final ChatRoomService chatRoomService;
     private final EmployeeRepository employeeRepository;
-
     private final FileStorageService fileStorageService;
     private final ChatRoomRepository chatRoomRepository;
 
